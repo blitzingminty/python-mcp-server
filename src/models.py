@@ -5,29 +5,36 @@ import datetime
 from sqlalchemy import (
     Table, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Index, PrimaryKeyConstraint
 )
-from sqlalchemy.orm import relationship, Mapped, mapped_column
+# Need relationship, Mapped, mapped_column, selectinload for eager loading if needed
+from sqlalchemy.orm import relationship, Mapped, mapped_column, selectinload
 from sqlalchemy.sql import func
+# Need List for type hints, Optional for optional fields, Set for tag collection
 from typing import List, Optional, Set
 
 # Import the Base class from database.py
 from .database import Base
 
-# --- Association Tables for Many-to-Many Relationships ---
+# --- Association Tables ---
 
+# Define association table for Document <-> Tag (Many-to-Many)
 document_tags_table = Table(
     "document_tags",
     Base.metadata,
+    # Ensure column names match the original schema if necessary
     Column("document_id", Integer, ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
-    Column("tag", Text, primary_key=True),
+    Column("tag_name", Text, ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True) # Link to Tag.name
 )
 
+# Define association table for MemoryEntry <-> Tag (Many-to-Many)
 memory_entry_tags_table = Table(
     "memory_entry_tags",
     Base.metadata,
+    # Ensure column names match the original schema if necessary
     Column("memory_entry_id", Integer, ForeignKey("memory_entries.id", ondelete="CASCADE"), primary_key=True),
-    Column("tag", Text, primary_key=True),
+    Column("tag_name", Text, ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True) # Link to Tag.name
 )
 
+# Define association table for MemoryEntry <-> Document (Many-to-Many) - This should already be here
 memory_entry_document_relations_table = Table(
     "memory_entry_document_relations",
     Base.metadata,
@@ -35,7 +42,31 @@ memory_entry_document_relations_table = Table(
     Column("document_id", Integer, ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
 )
 
+
 # --- Model Classes ---
+
+# --- ADD Tag Model ---
+class Tag(Base):
+    __tablename__ = "tags"
+    # Simple tag model - just the name acts as the primary key
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    # Define relationships back to Documents and MemoryEntries using the association tables
+    documents: Mapped[List["Document"]] = relationship(
+        "Document",
+        secondary=document_tags_table,
+        back_populates="tags"
+    )
+    memory_entries: Mapped[List["MemoryEntry"]] = relationship(
+        "MemoryEntry",
+        secondary=memory_entry_tags_table,
+        back_populates="tags"
+    )
+
+    def __repr__(self):
+        return f"<Tag(name='{self.name}')>"
+
+
 
 class Project(Base):
     __tablename__ = "projects"
@@ -71,12 +102,14 @@ class Document(Base):
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="documents")
     versions: Mapped[List["DocumentVersion"]] = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan", order_by="DocumentVersion.created_at")
-    # tags: Mapped[Set[str]] = relationship(
-    #     "Tag", # Assuming you might want a Tag class later, for now maps to string tags
-    #     secondary=document_tags_table,
-    #     collection_class=set # Store tags as a set of strings
-    #     # If you create a Tag class: back_populates="documents"
-    # )
+    # --- ADD BACK tags relationship, linking to Tag via document_tags_table ---
+    tags: Mapped[Set["Tag"]] = relationship(
+        "Tag",
+        secondary=document_tags_table,
+        back_populates="documents",
+        collection_class=set # Use a set for tags
+        # Consider adding lazy='selectin' if you often need tags when loading documents
+    )
     memory_entries: Mapped[List["MemoryEntry"]] = relationship(
         "MemoryEntry",
         secondary=memory_entry_document_relations_table,
@@ -117,15 +150,16 @@ class MemoryEntry(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
-#     # Relationships
-#     project: Mapped["Project"] = relationship("Project", back_populates="memory_entries")
-#     tags: Mapped[Set[str]] = relationship(
-#         "Tag", # Assuming you might want a Tag class later, for now maps to string tags
-#         secondary=memory_entry_tags_table,
-#         collection_class=set
-#          # If you create a Tag class: back_populates="memory_entries"
-#    )
+    # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="memory_entries")
+    # --- ADD BACK tags relationship, linking to Tag via memory_entry_tags_table ---
+    tags: Mapped[Set["Tag"]] = relationship(
+        "Tag",
+        secondary=memory_entry_tags_table,
+        back_populates="memory_entries",
+        collection_class=set # Use a set for tags
+        # Consider adding lazy='selectin' if you often need tags when loading memory entries
+    )
     documents: Mapped[List["Document"]] = relationship(
         "Document",
         secondary=memory_entry_document_relations_table,
