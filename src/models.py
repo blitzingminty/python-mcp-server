@@ -71,12 +71,12 @@ class Document(Base):
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="documents")
     versions: Mapped[List["DocumentVersion"]] = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan", order_by="DocumentVersion.created_at")
-    tags: Mapped[Set[str]] = relationship(
-        "Tag", # Assuming you might want a Tag class later, for now maps to string tags
-        secondary=document_tags_table,
-        collection_class=set # Store tags as a set of strings
-        # If you create a Tag class: back_populates="documents"
-    )
+    # tags: Mapped[Set[str]] = relationship(
+    #     "Tag", # Assuming you might want a Tag class later, for now maps to string tags
+    #     secondary=document_tags_table,
+    #     collection_class=set # Store tags as a set of strings
+    #     # If you create a Tag class: back_populates="documents"
+    # )
     memory_entries: Mapped[List["MemoryEntry"]] = relationship(
         "MemoryEntry",
         secondary=memory_entry_document_relations_table,
@@ -117,14 +117,15 @@ class MemoryEntry(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
-    # Relationships
+#     # Relationships
+#     project: Mapped["Project"] = relationship("Project", back_populates="memory_entries")
+#     tags: Mapped[Set[str]] = relationship(
+#         "Tag", # Assuming you might want a Tag class later, for now maps to string tags
+#         secondary=memory_entry_tags_table,
+#         collection_class=set
+#          # If you create a Tag class: back_populates="memory_entries"
+#    )
     project: Mapped["Project"] = relationship("Project", back_populates="memory_entries")
-    tags: Mapped[Set[str]] = relationship(
-        "Tag", # Assuming you might want a Tag class later, for now maps to string tags
-        secondary=memory_entry_tags_table,
-        collection_class=set
-         # If you create a Tag class: back_populates="memory_entries"
-   )
     documents: Mapped[List["Document"]] = relationship(
         "Document",
         secondary=memory_entry_document_relations_table,

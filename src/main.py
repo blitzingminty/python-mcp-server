@@ -10,9 +10,10 @@ import asyncio # <-- Need asyncio back for init_db
 from fastapi import FastAPI
 
 # --- Project Imports ---
-from .config import settings
-from .database import init_db # Import DB initialization function
-from .mcp_server_instance import mcp_instance
+# Use absolute imports from the 'src' package
+from src.config import settings
+from src.database import init_db # Import DB initialization function
+from src.mcp_server_instance import mcp_instance
 
 # --- SDK Imports ---
 # Not needed directly here anymore
@@ -64,6 +65,7 @@ def run_http_mode():
     # Add additional non-MCP FastAPI routes
     @app.get("/_fastapi_health")
     async def health_check():
+        """Health check endpoint for FastAPI."""
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
 
@@ -89,33 +91,14 @@ def main_server_runner():
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
-    # Setup argument parser
-    parser = argparse.ArgumentParser(description="Run the Python MCP Server.")
-    parser.add_argument(
-        "--init-db",
-        action="store_true", # Makes it a flag, doesn't require a value
-        help="Initialize the database schema and exit."
-    )
-    args = parser.parse_args()
-
-    # Check if --init-db flag is set
-    if args.init_db:
-        logger.info("Database initialization requested.")
-        try:
-            # Run the async init_db function
-            asyncio.run(init_db())
-            logger.info("Database initialization finished.")
-        except Exception as e:
-            logger.critical(f"Database initialization failed: {e}", exc_info=True)
-            sys.exit(1)
-        sys.exit(0) # Exit successfully after initializing DB
-    else:
-        # If --init-db is not set, run the main server logic
-        try:
-            main_server_runner()
-        except KeyboardInterrupt:
-            logger.info("Server stopped manually.")
-        except Exception as e:
-            logger.critical(f"Unhandled exception at top level: {e}", exc_info=True)
-            sys.exit(1)
-            
+    # Call the main function directly.
+    # It will read MCP_TRANSPORT and call the appropriate blocking runner.
+    # Table creation now happens inside the app_lifespan.
+    try:
+        main_server_runner() # Renamed the function that checks transport mode
+    except KeyboardInterrupt:
+        logger.info("Server stopped manually.")
+    except Exception as e:
+        logger.critical(f"Unhandled exception at top level: {e}", exc_info=True)
+        sys.exit(1)
+        
