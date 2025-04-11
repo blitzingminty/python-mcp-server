@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+SQLAlchemy
+alembic
+Jinja2
+starlette-session
+python-multipart
+pydantic-settings
+sse-starlette
+aiosqlite
+mcp[cli]
