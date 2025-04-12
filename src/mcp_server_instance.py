@@ -1,10 +1,11 @@
 # src/mcp_server_instance.py
 # Defines the FastMCP server instance and its handlers.
 
-import logging
+import logging,time
 from typing import Any, Dict, Optional, List, AsyncIterator
 from contextlib import asynccontextmanager
 import datetime
+
 
 # --- SQLAlchemy Imports ---
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -522,25 +523,143 @@ async def list_documents_for_project(project_id: int, ctx: Context) -> Dict[str,
         return {"error": f"Unexpected server error: {e}"}
 
 
-@mcp_instance.resource("document://{document_id}")  # Define URI pattern
-# No ctx here
-async def get_document_content(document_id: int) -> Dict[str, Any]:
-    """Resource handler to get the content of a specific document."""
-    logger.info(
-        f"Handling get_document_content resource request for document ID: {document_id}")
-    # TODO: Re-implement database access for resources if context is needed/accessible.
-    # For now, return placeholder data to fix startup error.
-    if document_id == 1:  # Example placeholder condition
+
+
+
+
+
+@mcp_instance.tool()
+async def list_document_versions(document_id: int, ctx: Context) -> Dict[str, Any]:
+    """Lists all historical versions available for a specific document."""
+    start_time = time.time() # <-- Start timer
+    logger.info(f"Handling list_document_versions request for document ID: {document_id}")
+    versions_data = []
+    try:
+        async with await get_session(ctx) as session:
+             # Fetch the document and eagerly load its versions, ordered
+             # Order by created_at descending to get newest first, or version string if comparable
+             stmt = select(Document).options(
+                 selectinload(Document.versions)
+             ).where(Document.id == document_id)
+             result = await session.execute(stmt)
+             document = result.scalar_one_or_none()
+
+             if document is None:
+                 logger.warning(f"Document {document_id} not found for listing versions.")
+                 return {"error": f"Document {document_id} not found"}
+
+             # Sort versions here if not done in the query's order_by
+             # sorted_versions = sorted(document.versions, key=lambda v: v.created_at, reverse=True)
+             sorted_versions = sorted(document.versions, key=lambda v: v.id) # Sort by ID for consistency maybe
+
+             for version in sorted_versions:
+                 versions_data.append({
+                     "version_id": version.id, # The unique ID of the version record
+                     "document_id": version.document_id,
+                     "version_string": version.version, # The version name/number (e.g., "1.0.0", "2.1")
+                     "created_at": version.created_at.isoformat() if version.created_at else None,
+                     # Optionally add a flag if this is the 'current' version on the parent Document
+                     "is_current": version.version == document.version
+                 })
+
+        logger.info(f"Found {len(versions_data)} versions for document {document_id}.")
+        end_time = time.time() # <-- End timer
+        logger.info(f"list_document_versions for doc {document_id} took {end_time - start_time:.4f} seconds.") # <-- Log duration
+        return {"versions": versions_data}
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing versions for document {document_id}: {e}", exc_info=True)
+        return {"error": f"Database error: {e}"}
+    except Exception as e:
+        logger.error(f"Unexpected error listing versions for document {document_id}: {e}", exc_info=True)
+        return {"error": f"Unexpected server error: {e}"}
+
+
+@mcp_instance.resource("document_version://{version_id}") # Use version ID
+async def get_document_version_content(version_id: int) -> Dict[str, Any]:
+    """Resource handler to get the content of a specific document version by its ID."""
+    start_time = time.time() # <-- Start timer
+    logger.info(f"Handling get_document_version_content resource request for version ID: {version_id}")
+    session: Optional[AsyncSession] = None
+    try:
+        session = AsyncSessionFactory()
+        logger.debug(f"Session created for get_document_version_content {version_id}")
+
+        # Fetch the specific version, need to load related document for mime_type
+        stmt = select(DocumentVersion).options(
+            selectinload(DocumentVersion.document)
+            ).where(DocumentVersion.id == version_id)
+        result = await session.execute(stmt)
+        version = result.scalar_one_or_none()
+        # version = await session.get(DocumentVersion, version_id, options=[selectinload(DocumentVersion.document)]) # Alternative
+
+        if version is None:
+            logger.warning(f"DocumentVersion with ID {version_id} not found for resource request.")
+            return {"error": f"DocumentVersion {version_id} not found"}
+
+        if version.document is None:
+             logger.error(f"DocumentVersion {version_id} has no associated document loaded.")
+             return {"error": f"Data integrity error for version {version_id}"}
+
+        logger.info(f"Found document version '{version.version}' (ID: {version_id}), returning content.")
+        end_time = time.time() # <-- End timer
+        logger.info(f"get_document_version_content for version {version_id} took {end_time - start_time:.4f} seconds.") # <-- Log duration
+
+        # Return content from the specific version, and mime_type from the parent document
         return {
-            "content": f"Placeholder content for document {document_id}",
-            "mime_type": "text/plain"
+            "content": version.content,
+            "mime_type": version.document.type,
+            "version_string": version.version, # Include the version string itself
+            "document_id": version.document_id # Include parent document ID
         }
-    else:
-        logger.warning(
-            f"Placeholder: Document with ID {document_id} not found.")
-        # Ensure this return is correctly indented within the else block
-        # Simple error return
-        return {"error": f"Document {document_id} not found"}
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting document version {version_id}: {e}", exc_info=True)
+        return {"error": f"Database error getting document version content"}
+    except Exception as e:
+        logger.error(f"Unexpected error getting document version {version_id}: {e}", exc_info=True)
+        return {"error": f"Unexpected server error processing resource"}
+    finally:
+        if session:
+            await session.close()
+            logger.debug(f"Session closed for get_document_version_content {version_id}")
+
+
+
+
+
+
+@mcp_instance.resource("document://{document_id}") # Define URI pattern
+async def get_document_content(document_id: int) -> Dict[str, Any]: # No ctx here
+    """Resource handler to get the content of a specific document."""
+    logger.info(f"Handling get_document_content resource request for document ID: {document_id}")
+    # Create session directly from the imported factory
+    session: Optional[AsyncSession] = None # Define session variable outside try
+    try:
+        session = AsyncSessionFactory() # Create a new session
+        logger.debug(f"Session created for get_document_content {document_id}")
+        document = await session.get(Document, document_id)
+
+        if document is None:
+            logger.warning(f"Document with ID {document_id} not found for resource request.")
+            return {"error": f"Document {document_id} not found"}
+
+        logger.info(f"Found document '{document.name}', returning content.")
+        # Resources typically return content and mime_type
+        return {
+            "content": document.content,
+            "mime_type": document.type
+        }
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting document {document_id}: {e}", exc_info=True)
+        return {"error": f"Database error getting document content"}
+    except Exception as e:
+        logger.error(f"Unexpected error getting document {document_id}: {e}", exc_info=True)
+        return {"error": f"Unexpected server error processing resource"}
+    finally:
+        # Ensure the session is closed if it was successfully created
+        if session:
+            await session.close()
+            logger.debug(f"Session closed for get_document_content {document_id}")
 
 
 @mcp_instance.tool()
