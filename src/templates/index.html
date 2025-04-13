@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title }}{% endblock %}
+
+{% block content %}
+<h1>{{ data.welcome_message }}</h1>
+<p>This is the main dashboard. Use the navigation above to manage server entities.</p>
+
+<h2>Summary</h2>
+<ul>
+    <li>Projects: [Count]</li>
+    <li>Documents: [Count]</li>
+    <li>Memory Entries: [Count]</li>
+</ul>
+
+{% endblock %}

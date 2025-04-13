@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title }}{% endblock %}
+
+{% block content %}
+<h1>Projects</h1>
+
+<p><a href="{{ request.url_for('ui_new_project') }}">Add New Project</a></p>
+
+{% if data.error %}
+<p style="color: red;">Error loading projects: {{ data.error }}</p>
+{% endif %}
+
+{% if data.projects %}
+<table border="1" style="border-collapse: collapse; width: 100%;">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Path</th>
+            <th>Created</th>
+            <th>Updated</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for project in data.projects %}
+        <tr>
+            <td>{{ project.id }}</td>
+            <td>
+                {{ project.name }}
+                {# --- Add Visual Indicator --- #}
+                {% if project.is_active %}
+                  <strong style="color: green;"> (Active)</strong>
+                {% endif %}
+            </td>
+            <td>{{ project.description if project.description else '-' }}</td>
+            <td>{{ project.path }}</td>
+            <td>{{ project.created_at.strftime('%Y-%m-%d %H:%M') if project.created_at else '-' }}</td>
+            <td>{{ project.updated_at.strftime('%Y-%m-%d %H:%M') if project.updated_at else '-' }}</td>
+            <td>
+                <a href="{{ request.url_for('ui_view_project', project_id=project.id) }}">View</a> |
+                <a href="{{ request.url_for('ui_edit_project', project_id=project.id) }}">Edit</a> |
+
+                {# --- Add Activate Form (conditional) --- #}
+                {% if not project.is_active %}
+                <form method="post" action="{{ request.url_for('ui_activate_project', project_id=project.id) }}" style="display: inline;">
+                  <button type="submit">Activate</button> {# Simple button #}
+                </form> |
+                {% endif %}
+                {# --- End Activate Form --- #}
+
+                <form method="post" action="{{ request.url_for('ui_delete_project', project_id=project.id) }}"
+                      style="display: inline;"
+                      onsubmit="return confirm('Are you sure you want to delete project \'{{ project.name }}\'? This cannot be undone.');">
+                    <button type="submit">Delete</button> {# Simple button #}
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No projects found.</p>
+{% endif %}
+
+<hr>
+<p><a href="{{ request.url_for('ui_new_project') }}">Add New Project</a></p>
+
+{% endblock %}

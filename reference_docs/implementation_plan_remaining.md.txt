@@ -1,0 +1,126 @@
+# Implementation Plan: MCP Server Web UI (Version 2 - Updated 2025-04-13)
+
+**Project:** Python MCP Server with FastAPI Web UI for Maintenance
+
+---
+**IMPORTANT NOTE FOR RESUMING WORK:**
+
+**Before starting or resuming implementation based on this plan in a new session, please request the user to provide the latest versions of the following project files to ensure you have the most current code context:**
+
+* **Python Files:**
+    * `src/main.py`
+    * `src/web_routes.py`
+    * `src/mcp_server_instance.py`
+    * `src/models.py`
+    * `src/database.py`
+    * `src/config.py` (if exists)
+* **HTML Template Files:** All relevant `.html` files currently existing within the `src/templates/` directory (e.g., `base.html`, `index.html`, `projects.html`, `project_detail.html`, `project_form.html`, `document_detail.html`, `document_form.html`, etc.).
+
+---
+
+**Goal:** Build a web-based user interface using FastAPI and Jinja2 templates to allow viewing and basic management (Create, Update, Delete actions where applicable) of the Projects, Documents, and Memory Entries managed by the backend MCP server.
+
+**Current Status (Summary):**
+
+* **Backend:** Functionally complete. All core MCP tools (`list_projects`, `create_project`, `get_project`, `update_project`, `delete_project`, `set_active_project`, `add_document`, `list_documents_for_project`, `list_document_versions`, `get_document_version_content`, `get_document_content`, `update_document`, `delete_document`, `add_memory_entry`, `list_memory_entries`, `get_memory_entry`, `update_memory_entry`, `delete_memory_entry`, `add_tag_to_document`, `remove_tag_from_document`, `list_tags_for_document`, `add_tag_to_memory_entry`, `remove_tag_from_memory_entry`, `list_tags_for_memory_entry`, `link_memory_entry_to_document`, `list_documents_for_memory_entry`, `link_memory_entries`, `list_related_memory_entries`, `unlink_memory_entry_from_document`, `unlink_memory_entries`) are implemented in `src/mcp_server_instance.py` using `FastMCP`. Database models (`src/models.py`)[cite: 1] and SQLAlchemy setup (`src/database.py`)[cite: 2] are complete, including SQLite `PRAGMA foreign_keys=ON` enforcement via event listener[cite: 2]. Schema auto-creation via lifespan manager in `mcp_server_instance.py` is functional[cite: 1]. Server runs in HTTP and STDIO modes (`src/main.py`)[cite: 3].
+* **Refactoring for UI:** Helper async functions (`_create_project_in_db`, `_update_project_in_db`, `_delete_project_in_db`, `_set_active_project_in_db`, `_add_document_in_db`, `_update_document_in_db`, `_delete_document_in_db`) have been created in `src/mcp_server_instance.py` to encapsulate core database logic, allowing direct calls from web routes. Corresponding MCP tools have been updated to use these helpers.
+* **Web UI (Partially Complete):**
+    * FastAPI app configured in `src/main.py`[cite: 3]. Jinja2 templates (`src/templates`) and static files (`src/static`) configured[cite: 3]. Web routes defined in `src/web_routes.py` and included under `/ui` prefix[cite: 3].
+    * **Base Template:** `base.html` exists.
+    * **Core Pages:** Index (`/ui/`), Project List (`/ui/projects`), Project Detail (`/ui/projects/{id}`), Document Detail (`/ui/documents/{id}`) are implemented.
+    * **Project Management (Phase 1 Complete):** Forms (`project_form.html`) and route handlers (GET/POST) for Create, Edit, Update, Delete, and Activate projects are implemented using direct calls to database helper functions via `Depends(get_db_session)`.
+    * **Document Management (Phase 2, Steps 1-5 Complete):** Document listing on Project Detail page, Document Detail View (GET), Add Document form (`document_form.html`) and handler, Edit Document (metadata) form and handler, and Delete Document handler are implemented using direct calls to database helper functions.
+
+**Key Technologies & Patterns:**
+
+* **Framework:** FastAPI (`fastapi`)
+* **Templating:** Jinja2 (`jinja2`) via `FastAPI.state.templates`
+* **Styling/JS:** Basic CSS/JS served via `StaticFiles` from `src/static`.
+* **Database:** SQLAlchemy 2.0 async with `aiosqlite`. Models defined in `src/models.py`[cite: 1]. Foreign Key enforcement enabled for SQLite via `src/database.py`[cite: 2].
+* **Backend Interaction (Web UI):** Web UI route handlers interact with the application logic by **directly calling async helper functions** defined in `src/mcp_server_instance.py`. These helpers contain the core database operations. Database sessions for web routes are obtained via FastAPI dependency injection (`Depends(get_db_session)` from `src/database.py`). **Note:** The original plan to use `httpx` calls to the MCP endpoint from the web UI has been superseded by this direct call pattern for simplicity and efficiency within the same application process.
+* **Forms:** Standard HTML forms using POST method. Data parsed in FastAPI using `fastapi.Form`.
+* **Redirection:** Use `fastapi.responses.RedirectResponse` after successful POST actions (usually with status code 303).
+
+**Required Dependencies:**
+
+* `fastapi`, `uvicorn[standard]`, `jinja2`, `SQLAlchemy`, `aiosqlite`, `mcp[cli]`, `python-dotenv`, `pydantic-settings`, `sse-starlette`, `alembic` (Ensure these are in `requirements.txt`). (Note: `httpx` is likely no longer required for the web UI).
+
+**Completed Implementation Steps:**
+
+* **Phase 1:** Project List, Detail, New Form (GET), Create (POST), Edit Form (GET), Update (POST), Delete (POST), Activate (POST) - All using direct DB helper calls.
+* **Phase 2 (Steps 1-5):** Document List (on Project Detail), Document Detail View (GET), Add Document Form (GET), Create Document (POST), Edit Document Metadata Form (GET), Update Document Metadata (POST), Delete Document (POST) - All using direct DB helper calls.
+
+---
+
+### **Remaining Implementation Steps**
+
+**(Using Direct Helper Call Pattern)**
+
+**Phase 2: Complete Document Management UI (Remaining)**
+
+6.  **Tag Management (Document):**
+    * **Goal:** Allow adding/removing tags on the Document Detail page.
+    * **Refactor:**
+        * In `src/mcp_server_instance.py`: Create helper `async def _add_tag_to_document_db(session: AsyncSession, document_id: int, tag_name: str) -> bool:` (returns True on success/already exists, False on error/doc not found). Should handle getting/creating the `Tag` object and adding it to `document.tags`.
+        * In `src/mcp_server_instance.py`: Create helper `async def _remove_tag_from_document_db(session: AsyncSession, document_id: int, tag_name: str) -> bool:` (returns True on success/not found, False on error). Should find the `Tag` in `document.tags` and remove it.
+        * Modify `add_tag_to_document` and `remove_tag_from_document` MCP tools to call these helpers.
+    * **Routes (`src/web_routes.py`):**
+        * `POST /ui/documents/{doc_id}/tags/add` (name: `ui_add_tag_to_document`): Takes `doc_id`, `request`, `db=Depends(get_db_session)`, `tag_name=Form(...)`. Calls `_add_tag_to_document_db`. Redirects back to `request.url_for('ui_view_document', doc_id=doc_id)`.
+        * `POST /ui/documents/{doc_id}/tags/remove` (name: `ui_remove_tag_from_document`): Takes `doc_id`, `request`, `db=Depends(get_db_session)`, `tag_name=Form(...)` (use hidden input or button value). Calls `_remove_tag_from_document_db`. Redirects back to `request.url_for('ui_view_document', doc_id=doc_id)`.
+    * **Template (`src/templates/document_detail.html`):**
+        * Replace placeholder forms in the "Tags" section with actual forms submitting to the new routes.
+        * The "remove" form needs to pass the `tag_name` (e.g., `<input type="hidden" name="tag_name" value="{{ tag.name }}">`). Use simple buttons.
+
+7.  **Version Management (Document):**
+    * **Goal:** Allow viewing the content of specific historical versions.
+    * **Refactor:**
+        * In `src/mcp_server_instance.py`: Create helper `async def _get_document_version_content_db(session: AsyncSession, version_id: int) -> DocumentVersion | None:`. Fetches the `DocumentVersion` by ID, potentially loading `version.document` for context if needed.
+        * Modify `get_document_version_content` MCP tool to call this helper.
+    * **Route (`src/web_routes.py`):**
+        * `GET /ui/versions/{version_id}` (name: `ui_view_version`): Takes `version_id`, `request`, `db=Depends(get_db_session)`. Calls `_get_document_version_content_db`. Handles version not found (404). Renders `version_detail.html`.
+    * **Templates:**
+        * Create `src/templates/version_detail.html`: Inherits `base.html`. Displays version ID, string, created date, and full content (e.g., in `<pre>`). Include link back to `request.url_for('ui_view_document', doc_id=version.document_id)`.
+        * Update `src/templates/document_detail.html`: In the versions table, make the version ID or string a link: `<a href="{{ request.url_for('ui_view_version', version_id=version.id) }}">`.
+
+**Phase 3: Implement Memory Entry Management UI**
+
+* (Structure mirrors Phase 2, operating on Memory Entries, using direct helper calls)
+1.  **Display Memory Entries on Project Detail:**
+    * **Goal:** Show memory entries associated with the current project.
+    * **Route Handler (`src/web_routes.py::view_project_web`):** Ensure the `selectinload(Project.memory_entries)` is present when fetching the project.
+    * **Template (`src/templates/project_detail.html`):** Update the "Associated Memory Entries" section. Display entries in a table: ID, Title, Type, Updated, Actions (View, Edit, Delete placeholders). Link Title to `ui_view_memory_entry` (to be created). Add "Add New Memory Entry" link pointing to `ui_new_memory_entry` (to be created).
+2.  **Memory Entry Detail Page:**
+    * **Refactor:** Create `_get_memory_entry_db` helper in `src/mcp_server_instance.py` (eager load `project`, `tags`, `documents`, `source_relations.target_entry`, `target_relations.source_entry`); modify `get_memory_entry` tool to use helper.
+    * **Route:** `GET /ui/memory/{entry_id}` (name `ui_view_memory_entry`). Takes `entry_id`, `request`, `db=Depends(get_db_session)`. Calls helper. Renders `memory_detail.html`.
+    * **Template:** Create `src/templates/memory_detail.html`. Display fields, content, project link, tags (with add/remove placeholders), linked documents (display only), related memory entries (display only). Add Edit/Delete buttons/links (placeholders).
+3.  **Add Memory Entry:**
+    * **Refactor:** Create `_add_memory_entry_db` helper; modify `add_memory_entry` tool.
+    * **Route (GET):** `/ui/projects/{project_id}/memory/new` (name `ui_new_memory_entry`). Renders `memory_form.html`. Passes `project_id`.
+    * **Route (POST):** `/ui/projects/{project_id}/memory` (name `ui_create_memory_entry`). Takes `project_id`, `request`, `db`, form data (Title, Type, Content). Calls helper. Redirects to `ui_view_memory_entry`.
+    * **Template:** Create `src/templates/memory_form.html` (Fields: Title, Type, Content).
+4.  **Edit Memory Entry:**
+    * **Refactor:** Create `_update_memory_entry_db` helper (metadata: Title, Type); modify `update_memory_entry` tool.
+    * **Route (GET):** `/ui/memory/{entry_id}/edit` (name `ui_edit_memory_entry`). Fetches entry. Renders `memory_form.html` pre-filled.
+    * **Route (POST):** `/ui/memory/{entry_id}/edit` (name `ui_update_memory_entry`). Takes form data (Title, Type). Calls helper. Redirects to `ui_view_memory_entry`.
+    * **Template:** Adapt `memory_form.html` for edit mode (pre-fill, hide content, change text). Add Edit links to `project_detail.html` (memory list) and `memory_detail.html`.
+5.  **Delete Memory Entry:**
+    * **Refactor:** Create `_delete_memory_entry_db` helper; modify `delete_memory_entry` tool.
+    * **Route (POST):** `/ui/memory/{entry_id}/delete` (name `ui_delete_memory_entry`). Fetches entry for `project_id`. Calls helper. Redirects to `ui_view_project`.
+    * **Template:** Add Delete forms/buttons (with JS confirm) to `project_detail.html` (memory list) and `memory_detail.html`.
+6.  **Tag Management (Memory):** (Mirrors Document Tag Management)
+    * Refactor tag tools for memory entries into helpers.
+    * Add POST routes `/ui/memory/{entry_id}/tags/(add|remove)`. Call helpers. Redirect to `ui_view_memory_entry`.
+    * Update `memory_detail.html` tag section with forms.
+7.  **Relationship Management (Memory):** (Display Only for now)
+    * Ensure `_get_memory_entry_db` helper eagerly loads related documents and memory entries.
+    * Display these relationships (linked document names/IDs, related memory entry titles/IDs) on `memory_detail.html`. Linking/Unlinking UI deferred.
+
+**Phase 4: Styling and Refinements**
+
+1.  **CSS:** Implement basic styling in `src/static/style.css` (e.g., improve table appearance, form layout). Consider a lightweight CSS framework like Bootstrap or Tailwind if desired, but keep simple for now.
+2.  **JavaScript:** Enhance JS confirmations if needed. Consider minor enhancements like client-side form validation later.
+3.  **Error Handling:** Improve display of errors passed via query parameters in templates (e.g., show them near the relevant form). Handle potential `HTTPException`s more gracefully if needed (e.g., custom error pages).
+4.  **User Feedback:** Implement flash messages using server-side session middleware (e.g., `starlette-session` or `itsdangerous` for signed cookies) to show success/error messages after POST actions (e.g., "Project created successfully"). Requires adding middleware to `main.py` and modifying route handlers to set/read messages. (Lower priority).
+5.  **Refactor:** Review `web_routes.py` and `mcp_server_instance.py` for repetitive code. Consider helper functions for common tasks like rendering templates or handling redirects with errors. Ensure consistent logging.
+
+**End Goal:** A functional web interface allowing users to view Projects, Documents, and Memory Entries, see their tags and basic relationships, and perform Create, Update (metadata), Delete operations via forms that interact **directly with database helper functions**.

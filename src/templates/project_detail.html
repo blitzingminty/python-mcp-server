@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title }}{% endblock %}
+
+{% block content %}
+
+{% if data.error %}
+<h1>Error</h1>
+<p style="color: red;">{{ data.error }}</p>
+<p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+
+{% elif data.project %}
+<h1>Project Details: {{ data.project.name }}</h1>
+<p><strong>ID:</strong> {{ data.project.id }}</p>
+<p><strong>Description:</strong> {{ data.project.description if data.project.description else 'N/A' }}</p>
+<p><strong>Path:</strong> {{ data.project.path }}</p>
+<p><strong>Active:</strong>
+    {% if data.project.is_active %}
+    <strong style="color: green;">Yes (Currently Active)</strong>
+    {% else %}
+    No
+    {% endif %}
+</p>
+<p><strong>Created:</strong> {{ data.project.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.created_at else
+    '-' }}</p>
+<p><strong>Updated:</strong> {{ data.project.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.updated_at else
+    '-' }}</p>
+
+<hr>
+
+<hr>
+
+<h2>Associated Documents</h2>
+{% if data.project.documents %}
+<table border="1" style="border-collapse: collapse; width: 100%; margin-top: 10px;">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Version</th>
+            <th>Updated</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for doc in data.project.documents %}
+        <tr>
+            {# Link the ID to the document detail page #}
+            <td><a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">{{ doc.id }}</a></td>
+            <td>{{ doc.name }}</td>
+            <td>{{ doc.type }}</td>
+            <td>{{ doc.version }}</td>
+            <td>{{ doc.updated_at.strftime('%Y-%m-%d %H:%M') if doc.updated_at else '-' }}</td>
+            <td>
+                {# Update the View link #}
+                <a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">View</a> |
+                <a href="{{ request.url_for('ui_edit_document', doc_id=doc.id) }}">Edit</a> |
+                <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=doc.id) }}"
+                    style="display: inline;"
+                    onsubmit="return confirm('Are you sure you want to delete document \'{{ doc.name }}\'? This cannot be undone.');">
+                    <button type="submit"
+                        style="border: none; background: none; color: blue; text-decoration: underline; cursor: pointer; padding: 0;">Delete</button>
+                    {# Link-like button #}
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No documents found for this project.</p>
+{% endif %}
+<p style="margin-top: 10px;">
+    <a href="{{ request.url_for('ui_new_document', project_id=data.project.id) }}">Add New Document</a>
+</p>
+
+
+
+
+
+
+<h2>Associated Memory Entries</h2>
+{# ... (keep existing memory entry list code) ... #}
+<p><a href="#">Add Memory Entry</a></p>
+
+<hr>
+
+<p>
+    <a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a> |
+    <a href="{{ request.url_for('ui_edit_project', project_id=data.project.id) }}">Edit Project</a> |
+<form method="post" action="{{ request.url_for('ui_delete_project', project_id=data.project.id) }}"
+    style="display: inline; margin-left: 5px;"
+    onsubmit="return confirm('Are you sure you want to delete project \'{{ data.project.name }}\'? This cannot be undone.');">
+    <button type="submit">Delete Project</button>
+</form>
+
+{# --- Add Activate Form/Status (conditional) --- #}
+{% if not data.project.is_active %}
+| <form method="post" action="{{ request.url_for('ui_activate_project', project_id=data.project.id) }}"
+    style="display: inline; margin-left: 5px;">
+    <button type="submit">Set as Active Project</button> {# Simple button #}
+</form>
+{% endif %}
+{# --- End Activate Form/Status --- #}
+</p>
+{% else %}
+<h1>Project Not Found</h1>
+<p>The requested project could not be found.</p>
+<p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+{% endif %}
+
+{% endblock %}

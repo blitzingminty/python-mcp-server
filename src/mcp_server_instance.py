@@ -1,6 +1,8 @@
 # src/mcp_server_instance.py
 # Defines the FastMCP server instance and its handlers.
 
+
+
 import logging,time
 from typing import Any, Dict, Optional, List, AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
+
+from .database import AsyncSessionFactory, Base, engine, get_db_session # Ensure get_db_session is imported if needed elsewhere, though not directly here for the tool
+
+from .models import Project, Document, DocumentVersion
 
 # --- SDK Imports ---
 try:
@@ -25,11 +31,6 @@ except ImportError as e:
 
 # --- Project Imports ---
 from .config import settings
-# Import DB components needed for lifespan and handlers
-# Add Base, engine if needed for lifespan init
-from .database import AsyncSessionFactory, Base, engine
-
-
 from .models import Project, Document, DocumentVersion, MemoryEntry, Tag, MemoryEntryRelation # Add MemoryEntryRelation
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,82 @@ logger.info(
     f"FastMCP instance created with lifespan: {settings.MCP_SERVER_NAME} v{settings.VERSION}")
 
 
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _delete_document_in_db(session: AsyncSession, document_id: int) -> bool:
+    """
+    Core logic to delete a document from the database.
+    Assumes cascade delete handles associated versions/tags appropriately.
+    Returns True if deletion was successful or document didn't exist,
+    False if a database error occurred during delete.
+    """
+    logger.debug(f"Helper: Deleting document ID {document_id} from DB.")
+    doc = await session.get(Document, document_id)
+
+    if doc is None:
+        logger.warning(f"Helper: Document ID {document_id} not found for deletion.")
+        return True # Treat as success from caller's perspective (it's gone)
+
+    try:
+        await session.delete(doc)
+        await session.flush() # Ensure delete operation is executed within the transaction
+        logger.info(f"Helper: Document ID {document_id} ('{doc.name}') deleted.")
+        return True
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error deleting document {document_id}: {e}", exc_info=True)
+        return False
+
+
+
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _update_document_in_db(
+    session: AsyncSession,
+    document_id: int,
+    name: Optional[str] = None,
+    path: Optional[str] = None,
+    type: Optional[str] = None,
+    # Removed content and version - handle content updates separately maybe
+) -> Document | None: # Return updated Document or None if not found
+    """
+    Core logic to update a document's metadata in the database.
+    Does NOT handle content/version updates currently.
+    """
+    logger.debug(f"Helper: Updating metadata for document ID {document_id} in DB.")
+    # Fetch the document first
+    document = await session.get(Document, document_id)
+
+    if document is None:
+        logger.warning(f"Helper: Document ID {document_id} not found for update.")
+        return None # Indicate not found
+
+    update_data = {"name": name, "path": path, "type": type}
+    updated = False
+    for key, value in update_data.items():
+        # Only update if the value is provided (not None) AND different from current value
+        if value is not None and getattr(document, key) != value:
+            setattr(document, key, value)
+            updated = True
+
+    if updated:
+        logger.debug(f"Helper: Applying metadata updates to document {document_id}.")
+        # Ensure changes are flushed to DB within the caller's transaction
+        # updated_at should be handled by the model's onupdate
+        await session.flush()
+        await session.refresh(document) # Refresh to get updated timestamp etc.
+    else:
+        logger.debug(f"Helper: No metadata changes detected for document {document_id}.")
+
+    return document # Return the document object (updated or unchanged)
+
+
+
+
+
 # --- Helper to get session from context ---
 async def get_session(ctx: Context) -> AsyncSession:
     """Gets an async session from the lifespan context."""
@@ -96,6 +173,217 @@ async def get_session(ctx: Context) -> AsyncSession:
             "Context structure unexpected. Cannot find lifespan context or session factory.")
         raise RuntimeError(
             "Server configuration error: Context structure invalid.")
+
+
+
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _create_project_in_db(
+    session: AsyncSession,
+    name: str,
+    path: str,
+    description: Optional[str],
+    is_active: bool
+) -> Project: # Return the created Project model instance
+    """Core logic to create a project in the database."""
+    logger.debug(f"Helper: Creating project '{name}' in DB.")
+    new_project = Project(
+        name=name,
+        path=path,
+        description=description,
+        is_active=is_active
+    )
+    # Add to session (will be handled within transaction by caller)
+    session.add(new_project)
+    # Flush within the caller's transaction to get ID/defaults before returning object
+    await session.flush()
+    await session.refresh(new_project) # Refresh to get defaults like created_at
+    logger.debug(f"Helper: Project created with ID {new_project.id}")
+    return new_project
+
+
+
+
+
+async def _update_project_in_db(
+    session: AsyncSession,
+    project_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    path: Optional[str] = None,
+    is_active: Optional[bool] = None,
+) -> Project | None: # Return updated Project or None if not found
+    """Core logic to update a project in the database."""
+    logger.debug(f"Helper: Updating project ID {project_id} in DB.")
+    # Fetch the project first
+    project = await session.get(Project, project_id)
+
+    if project is None:
+        logger.warning(f"Helper: Project ID {project_id} not found for update.")
+        return None # Indicate not found
+
+    update_data = {
+        "name": name, "description": description, "path": path, "is_active": is_active
+    }
+    updated = False
+    for key, value in update_data.items():
+        # Only update if the value is provided (not None) AND different from current value
+        if value is not None and getattr(project, key) != value:
+            setattr(project, key, value)
+            updated = True
+
+    if updated:
+        logger.debug(f"Helper: Applying updates to project {project_id}.")
+        # Ensure changes are flushed to DB within the caller's transaction
+        await session.flush()
+        await session.refresh(project) # Refresh to get updated timestamp etc.
+    else:
+        logger.debug(f"Helper: No changes detected for project {project_id}.")
+
+    return project # Return the project object (updated or unchanged)
+
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _delete_project_in_db(session: AsyncSession, project_id: int) -> bool:
+    """
+    Core logic to delete a project from the database.
+    Returns True if deletion was successful or project didn't exist,
+    False if a database error occurred during delete.
+    """
+    logger.debug(f"Helper: Deleting project ID {project_id} from DB.")
+    project = await session.get(Project, project_id)
+
+    if project is None:
+        logger.warning(f"Helper: Project ID {project_id} not found for deletion.")
+        return True # Treat as success from caller's perspective (it's gone)
+
+    try:
+        await session.delete(project)
+        await session.flush() # Ensure delete operation is executed within the transaction
+        logger.info(f"Helper: Project ID {project_id} deleted.")
+        return True
+    except SQLAlchemyError as e:
+        # Log the error, caller might handle transaction rollback
+        logger.error(f"Helper: Database error deleting project {project_id}: {e}", exc_info=True)
+        # Re-raise to ensure transaction rollback? Or return False?
+        # Let's return False, caller handles redirect.
+        return False
+
+
+
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _add_document_in_db(
+    session: AsyncSession,
+    project_id: int,
+    name: str,
+    path: str,
+    content: str,
+    type: str,
+    version: str = "1.0.0" # Default version if not specified
+) -> Document | None: # Return Document object or None if project not found
+    """Core logic to add a document and its initial version to the database."""
+    logger.debug(f"Helper: Adding document '{name}' to project {project_id}.")
+
+    # Check if project exists
+    project = await session.get(Project, project_id)
+    if project is None:
+        logger.warning(f"Helper: Project {project_id} not found for adding document.")
+        return None # Indicate project not found
+
+    # Create the new document
+    new_document = Document(
+        project_id=project_id,
+        name=name,
+        path=path,
+        content=content, # Store initial content on document record
+        type=type,
+        version=version # Store initial version on document record
+    )
+    session.add(new_document)
+
+    # Flush to get the new_document.id for the version record
+    await session.flush()
+
+    # Create the initial DocumentVersion entry
+    new_version_entry = DocumentVersion(
+        document_id=new_document.id,
+        content=content,
+        version=version
+    )
+    session.add(new_version_entry)
+
+    # Refresh document to get defaults (like created_at) before returning
+    await session.refresh(new_document)
+    # We might also want the version ID, refresh it too
+    await session.refresh(new_version_entry) # Add this line if needed
+
+    logger.info(f"Helper: Document '{name}' (ID: {new_document.id}) added to project {project_id}.")
+    # Optionally attach the initial version ID to the returned object if needed,
+    # but the main function just needs the Document object.
+    # setattr(new_document, 'initial_version_id', new_version_entry.id) # Example
+    return new_document
+
+
+
+
+
+
+
+# --- NEW HELPER FUNCTION ---
+async def _set_active_project_in_db(session: AsyncSession, project_id: int) -> Project | None:
+    """
+    Core logic to set a project as active, deactivating others.
+    Returns the activated project object if successful, None if the project wasn't found.
+    Raises SQLAlchemyError on database issues during update.
+    """
+    logger.debug(f"Helper: Setting project ID {project_id} as active in DB.")
+    # Get the project to activate
+    project_to_activate = await session.get(Project, project_id)
+
+    if project_to_activate is None:
+        logger.warning(f"Helper: Project ID {project_id} not found to activate.")
+        return None # Indicate not found
+
+    # Find and deactivate currently active projects (if any)
+    stmt = select(Project).where(Project.is_active == True, Project.id != project_id)
+    result = await session.execute(stmt)
+    currently_active_projects = result.scalars().all()
+
+    updated = False
+    for proj in currently_active_projects:
+        logger.debug(f"Helper: Deactivating currently active project ID: {proj.id}")
+        proj.is_active = False
+        updated = True
+
+    # Activate the target project if it's not already active
+    if not project_to_activate.is_active:
+        logger.debug(f"Helper: Activating project ID: {project_id}")
+        project_to_activate.is_active = True
+        updated = True
+    else:
+         logger.debug(f"Helper: Project ID: {project_id} was already active.")
+
+    if updated:
+        # Ensure changes are flushed within the caller's transaction
+        await session.flush()
+        # Refresh the specifically activated project if needed (e.g., to get updated_at)
+        await session.refresh(project_to_activate)
+    else:
+        logger.debug(f"Helper: No change in active state for project {project_id}.")
+
+    return project_to_activate # Return the target project object
+
+
+
+
+
 
 # --- Define MCP Tools using Decorators ---
 
@@ -131,57 +419,55 @@ async def list_projects(ctx: Context) -> Dict[str, Any]:
         return {"error": f"Unexpected server error: {e}"}
 
 
+# --- MODIFIED MCP TOOL ---
 @mcp_instance.tool()
 async def create_project(
     name: str,
     path: str,
     description: Optional[str] = None,
     is_active: bool = False,
-    ctx: Context = None  # Context needs to be last if optional, or use **kwargs
+    ctx: Context = None  # Context is required by FastMCP to call the tool
 ) -> Dict[str, Any]:
-    """Creates a new project in the database."""
-    logger.info(
-        f"Handling create_project request: name='{name}', path='{path}'")
+    """Creates a new project in the database (MCP Tool Wrapper)."""
+    logger.info(f"Handling create_project MCP tool request: name='{name}'")
     if not ctx:
         logger.error("Context (ctx) argument missing in create_project call.")
         return {"error": "Internal server error: Context missing."}
     try:
-        new_project = Project(
-            name=name,
-            path=path,
-            description=description,
-            is_active=is_active
-            # created_at/updated_at have defaults
-        )
+        # Get session using the context helper
         async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                session.add(new_project)
-                # We need to flush to get the ID before commit (if needed immediately)
-                # await session.flush()
-                # Or commit and then refresh/re-select if ID needed in response
-            # Commit happens automatically when 'async with session.begin()' exits without error
-            # To get the generated ID and defaults, expire and refresh
-            await session.refresh(new_project, attribute_names=['id', 'created_at', 'updated_at'])
+            # Use a transaction
+            async with session.begin():
+                # Call the refactored helper function
+                created_project = await _create_project_in_db(
+                    session=session,
+                    name=name,
+                    path=path,
+                    description=description,
+                    is_active=is_active
+                )
 
-        logger.info(f"Project created successfully with ID: {new_project.id}")
+        # Format the success response for the MCP client
+        logger.info(f"Project created successfully via MCP tool with ID: {created_project.id}")
         return {
             "message": "Project created successfully",
             "project": {
-                "id": new_project.id,
-                "name": new_project.name,
-                "description": new_project.description,
-                "path": new_project.path,
-                "is_active": new_project.is_active,
-                "created_at": new_project.created_at.isoformat() if new_project.created_at else None,
-                "updated_at": new_project.updated_at.isoformat() if new_project.updated_at else None,
+                "id": created_project.id,
+                "name": created_project.name,
+                "description": created_project.description,
+                "path": created_project.path,
+                "is_active": created_project.is_active,
+                "created_at": created_project.created_at.isoformat() if created_project.created_at else None,
+                "updated_at": created_project.updated_at.isoformat() if created_project.updated_at else None,
             }
         }
     except SQLAlchemyError as e:
-        logger.error(f"Database error creating project: {e}", exc_info=True)
+        logger.error(f"Database error creating project via MCP tool: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(f"Unexpected error creating project: {e}", exc_info=True)
+        logger.error(f"Unexpected error creating project via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
 
 
 # --- Placeholder Tool/Resource Handlers from before (can be filled in later) ---
@@ -228,176 +514,128 @@ async def update_project(
     description: Optional[str] = None,
     path: Optional[str] = None,
     is_active: Optional[bool] = None,
-    ctx: Context = None  # Context needs to be last if optional, or use **kwargs
+    ctx: Context = None
 ) -> Dict[str, Any]:
-    """Updates fields for a specific project."""
-    logger.info(f"Handling update_project request for ID: {project_id}")
+    """Updates fields for a specific project (MCP Tool Wrapper)."""
+    logger.info(f"Handling update_project MCP tool request for ID: {project_id}")
     if not ctx:
         logger.error("Context (ctx) argument missing in update_project call.")
         return {"error": "Internal server error: Context missing."}
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                project = await session.get(Project, project_id)
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                # Call the refactored helper function
+                updated_project = await _update_project_in_db(
+                    session=session,
+                    project_id=project_id,
+                    name=name,
+                    description=description,
+                    path=path,
+                    is_active=is_active
+                )
 
-                if project is None:
-                    logger.warning(
-                        f"Project with ID {project_id} not found for update.")
-                    # Rollback happens automatically when exiting 'async with session.begin()' due to error
-                    return {"error": f"Project with ID {project_id} not found"}
+        if updated_project is None:
+             # Project not found by helper
+             logger.warning(f"MCP Tool: Project with ID {project_id} not found for update.")
+             return {"error": f"Project with ID {project_id} not found"}
 
-                update_data = {
-                    "name": name, "description": description, "path": path, "is_active": is_active
-                }
-                updated = False
-                for key, value in update_data.items():
-                    if value is not None:
-                        if getattr(project, key) != value:
-                            setattr(project, key, value)
-                            updated = True
-
-                if not updated:
-                    logger.info(
-                        f"No fields provided to update for project {project_id}.")
-                    # Still return success, but maybe indicate no change?
-                    # For simplicity, return current state. Refresh might not be needed.
-                    # await session.refresh(project) # Refresh if defaults could change
-                    return {
-                        "message": "No update needed for project",
-                        "project": {
-                            "id": project.id,
-                            "name": project.name,
-                            "description": project.description,
-                            "path": project.path,
-                            "is_active": project.is_active,
-                            "created_at": project.created_at.isoformat() if project.created_at else None,
-                            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-                        }  # Return current state
-                    }
-
-                # updated_at should be handled by onupdate=func.now() in the model
-                logger.info(f"Updating project ID: {project_id}")
-                # Add project back to session - usually automatic if fetched via session.get
-                # session.add(project)
-                # Flush to ensure update happens before refresh, then refresh to get new updated_at
-                await session.flush()
-                await session.refresh(project, attribute_names=["updated_at"])
-
-            # Transaction commits here if no exceptions
-            logger.info(f"Project {project_id} updated successfully.")
-            return {
-                "message": "Project updated successfully",
-                "project": {
-                    "id": project.id,
-                    "name": project.name,
-                    "description": project.description,
-                    "path": project.path,
-                    "is_active": project.is_active,
-                    "created_at": project.created_at.isoformat() if project.created_at else None,
-                    "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-                }
+        # Format the success response for the MCP client
+        logger.info(f"Project {project_id} updated successfully via MCP tool.")
+        return {
+            "message": "Project updated successfully",
+            "project": {
+                "id": updated_project.id,
+                "name": updated_project.name,
+                "description": updated_project.description,
+                "path": updated_project.path,
+                "is_active": updated_project.is_active,
+                "created_at": updated_project.created_at.isoformat() if updated_project.created_at else None,
+                "updated_at": updated_project.updated_at.isoformat() if updated_project.updated_at else None,
             }
-
+        }
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error updating project {project_id}: {e}", exc_info=True)
+        logger.error(f"Database error updating project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error updating project {project_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error updating project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
 
 
 @mcp_instance.tool()
 async def delete_project(project_id: int, ctx: Context) -> Dict[str, Any]:
-    """Deletes a specific project by its ID."""
-    logger.info(f"Handling delete_project request for ID: {project_id}")
+    """Deletes a specific project by its ID (MCP Tool Wrapper)."""
+    logger.info(f"Handling delete_project MCP tool request for ID: {project_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in delete_project call.")
+        return {"error": "Internal server error: Context missing."}
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                project = await session.get(Project, project_id)
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                deleted = await _delete_project_in_db(session, project_id)
 
-                if project is None:
-                    logger.warning(
-                        f"Project with ID {project_id} not found for deletion.")
-                    return {"error": f"Project with ID {project_id} not found"}
-
-                logger.info(
-                    f"Deleting project ID: {project_id} ('{project.name}')")
-                await session.delete(project)
-            # Commit happens automatically
-
-        logger.info(f"Project {project_id} deleted successfully.")
-        return {"message": f"Project ID {project_id} deleted successfully"}
+        if deleted:
+            logger.info(f"Project {project_id} deleted successfully via MCP tool.")
+            return {"message": f"Project ID {project_id} deleted successfully"}
+        else:
+            # This case might be hard to reach if helper re-raises,
+            # but good practice to handle.
+            logger.error(f"MCP Tool: Failed to delete project {project_id} due to database error during delete.")
+            # Error already logged by helper
+            return {"error": "Database error during project deletion"}
 
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error deleting project {project_id}: {e}", exc_info=True)
+        # Catch errors during session/transaction setup or commit
+        logger.error(f"Database error processing delete_project tool for {project_id}: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error deleting project {project_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error processing delete_project tool for {project_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
 
 
 @mcp_instance.tool()
 async def set_active_project(project_id: int, ctx: Context) -> Dict[str, Any]:
-    """Sets a specific project as active, deactivating all others."""
-    logger.info(f"Handling set_active_project request for ID: {project_id}")
+    """Sets a specific project as active, deactivating all others (MCP Tool Wrapper)."""
+    logger.info(f"Handling set_active_project MCP tool request for ID: {project_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in set_active_project call.")
+        return {"error": "Internal server error: Context missing."}
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                # Get the project to activate
-                project_to_activate = await session.get(Project, project_id)
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                # Call the refactored helper function
+                activated_project = await _set_active_project_in_db(session, project_id)
 
-                if project_to_activate is None:
-                    logger.warning(
-                        f"Project with ID {project_id} not found to activate.")
-                    return {"error": f"Project with ID {project_id} not found"}
+        if activated_project is None:
+             # Project not found by helper
+             logger.warning(f"MCP Tool: Project with ID {project_id} not found to activate.")
+             return {"error": f"Project with ID {project_id} not found"}
 
-                # Find currently active projects (excluding the target one if it's already active)
-                stmt = select(Project).where(Project.is_active ==
-                                             True, Project.id != project_id)
-                result = await session.execute(stmt)
-                currently_active_projects = result.scalars().all()
-
-                # Deactivate others
-                for proj in currently_active_projects:
-                    logger.info(
-                        f"Deactivating currently active project ID: {proj.id}")
-                    proj.is_active = False
-                    # session.add(proj) # Often implicit
-
-                # Activate the target project
-                if not project_to_activate.is_active:
-                    logger.info(f"Activating project ID: {project_id}")
-                    project_to_activate.is_active = True
-                    # session.add(project_to_activate) # Often implicit
-                else:
-                    logger.info(
-                        f"Project ID: {project_id} was already active.")
-
-            # Commit happens automatically
-
-        logger.info(f"Project {project_id} is now the active project.")
-        # Return the activated project details
+        # Format the success response for the MCP client
+        logger.info(f"Project {project_id} is now the active project (via MCP tool).")
         return {
             "message": f"Project ID {project_id} set as active",
-            "project": {
-                "id": project_to_activate.id,
-                "name": project_to_activate.name,
-                "is_active": project_to_activate.is_active,
+            "project": { # Return some basic info
+                "id": activated_project.id,
+                "name": activated_project.name,
+                "is_active": activated_project.is_active,
+                # Add other fields if needed by MCP clients
             }
         }
-
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error setting active project {project_id}: {e}", exc_info=True)
+        logger.error(f"Database error setting active project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error setting active project {project_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error setting active project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
+
+
+
 
 
 @mcp_instance.tool()
@@ -406,77 +644,62 @@ async def add_document(
     name: str,
     path: str,
     content: str,
-    type: str,  # e.g., 'text/plain', 'markdown', 'python'
-    version: str = "1.0.0",  # Default version for initial add
+    type: str,
+    version: str = "1.0.0", # Default version for initial add
     ctx: Context = None
 ) -> Dict[str, Any]:
-    """Adds a new document to a specified project."""
-    logger.info(
-        f"Handling add_document request for project ID: {project_id}, name: {name}")
+    """Adds a new document to a specified project (MCP Tool Wrapper)."""
+    logger.info(f"Handling add_document MCP tool request for project ID: {project_id}, name: {name}")
     if not ctx:
         logger.error("Context (ctx) argument missing in add_document call.")
         return {"error": "Internal server error: Context missing."}
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                # Verify project exists
-                project = await session.get(Project, project_id)
-                if project is None:
-                    logger.warning(
-                        f"Project with ID {project_id} not found for adding document.")
-                    return {"error": f"Project with ID {project_id} not found"}
-
-                # Create the new document
-                new_document = Document(
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                # Call the refactored helper function
+                added_document = await _add_document_in_db(
+                    session=session,
                     project_id=project_id,
                     name=name,
                     path=path,
                     content=content,
                     type=type,
-                    version=version  # Store initial version on document too
-                )
-                session.add(new_document)
-
-                # Optionally, create an initial DocumentVersion entry as well
-                # Flush to get the new_document.id
-                await session.flush()
-                new_version = DocumentVersion(
-                    document_id=new_document.id,
-                    content=content,
                     version=version
                 )
-                session.add(new_version)
 
-                # Refresh to get generated IDs/defaults
-                await session.refresh(new_document)
-                await session.refresh(new_version)
+        if added_document is None:
+             # Project not found by helper
+             logger.warning(f"MCP Tool: Project with ID {project_id} not found for adding document.")
+             return {"error": f"Project with ID {project_id} not found"}
 
-            # Commit happens automatically
-
-        logger.info(
-            f"Document '{name}' (ID: {new_document.id}) added successfully to project {project_id}.")
+        # Format the success response for the MCP client
+        logger.info(f"Document '{name}' (ID: {added_document.id}) added successfully via MCP tool.")
         return {
             "message": "Document added successfully",
-            "document": {
-                "id": new_document.id,
-                "project_id": new_document.project_id,
-                "name": new_document.name,
-                "path": new_document.path,
-                "type": new_document.type,
-                "version": new_document.version,
-                "created_at": new_document.created_at.isoformat() if new_document.created_at else None,
-                "updated_at": new_document.updated_at.isoformat() if new_document.updated_at else None,
-                "initial_version_id": new_version.id  # Include ID of the version created
+            "document": { # Return basic info
+                "id": added_document.id,
+                "project_id": added_document.project_id,
+                "name": added_document.name,
+                "path": added_document.path,
+                "type": added_document.type,
+                "version": added_document.version,
+                "created_at": added_document.created_at.isoformat() if added_document.created_at else None,
+                "updated_at": added_document.updated_at.isoformat() if added_document.updated_at else None,
+                # Add initial_version_id if needed
             }
         }
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error adding document to project {project_id}: {e}", exc_info=True)
+        logger.error(f"Database error adding document to project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error adding document to project {project_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error adding document to project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
+
+
+
+
 
 
 @mcp_instance.tool()
@@ -575,53 +798,53 @@ async def list_document_versions(document_id: int, ctx: Context) -> Dict[str, An
         return {"error": f"Unexpected server error: {e}"}
 
 
-@mcp_instance.resource("document_version://{version_id}") # Use version ID
-async def get_document_version_content(version_id: int) -> Dict[str, Any]:
-    """Resource handler to get the content of a specific document version by its ID."""
-    start_time = time.time() # <-- Start timer
-    logger.info(f"Handling get_document_version_content resource request for version ID: {version_id}")
-    session: Optional[AsyncSession] = None
+
+@mcp_instance.tool() # Changed from .resource("document_version://{version_id}")
+async def get_document_version_content(version_id: int, ctx: Context = None) -> Dict[str, Any]: # Added ctx
+    """Tool handler to get the content of a specific document version by its ID.""" # Docstring updated
+    logger.info(f"Handling get_document_version_content TOOL request for version ID: {version_id}")
+    if not ctx:
+         # Although marked optional, tools should receive ctx from FastMCP
+         logger.error("Context (ctx) argument missing in get_document_version_content call.")
+         return {"error": "Internal server error: Context missing."}
     try:
-        session = AsyncSessionFactory()
-        logger.debug(f"Session created for get_document_version_content {version_id}")
+        # Use the get_session helper now that ctx is available
+        async with await get_session(ctx) as session:
+            logger.debug(f"Session obtained for get_document_version_content {version_id}")
+            # Fetch the specific version, need to load related document for mime_type
+            stmt = select(DocumentVersion).options(
+                selectinload(DocumentVersion.document) # Eager load parent document
+                ).where(DocumentVersion.id == version_id)
+            result = await session.execute(stmt)
+            version = result.scalar_one_or_none()
+            # Alternatively: version = await session.get(DocumentVersion, version_id, options=[selectinload(DocumentVersion.document)])
 
-        # Fetch the specific version, need to load related document for mime_type
-        stmt = select(DocumentVersion).options(
-            selectinload(DocumentVersion.document)
-            ).where(DocumentVersion.id == version_id)
-        result = await session.execute(stmt)
-        version = result.scalar_one_or_none()
-        # version = await session.get(DocumentVersion, version_id, options=[selectinload(DocumentVersion.document)]) # Alternative
+            if version is None:
+                logger.warning(f"DocumentVersion with ID {version_id} not found for tool request.")
+                return {"error": f"DocumentVersion {version_id} not found"}
 
-        if version is None:
-            logger.warning(f"DocumentVersion with ID {version_id} not found for resource request.")
-            return {"error": f"DocumentVersion {version_id} not found"}
+            if version.document is None:
+                 logger.error(f"DocumentVersion {version_id} has no associated document loaded.")
+                 return {"error": f"Data integrity error for version {version_id}"}
 
-        if version.document is None:
-             logger.error(f"DocumentVersion {version_id} has no associated document loaded.")
-             return {"error": f"Data integrity error for version {version_id}"}
-
-        logger.info(f"Found document version '{version.version}' (ID: {version_id}), returning content.")
-        end_time = time.time() # <-- End timer
-        logger.info(f"get_document_version_content for version {version_id} took {end_time - start_time:.4f} seconds.") # <-- Log duration
-
-        # Return content from the specific version, and mime_type from the parent document
-        return {
-            "content": version.content,
-            "mime_type": version.document.type,
-            "version_string": version.version, # Include the version string itself
-            "document_id": version.document_id # Include parent document ID
-        }
+            logger.info(f"Found document version '{version.version}' (ID: {version_id}), returning content.")
+            # Return result wrapped in a "result" key for tool convention
+            return {
+                "result": { # <-- Wrap result for tool
+                    "content": version.content,
+                    "mime_type": version.document.type,
+                    "version_string": version.version,
+                    "document_id": version.document_id
+                }
+            }
     except SQLAlchemyError as e:
         logger.error(f"Database error getting document version {version_id}: {e}", exc_info=True)
         return {"error": f"Database error getting document version content"}
     except Exception as e:
         logger.error(f"Unexpected error getting document version {version_id}: {e}", exc_info=True)
-        return {"error": f"Unexpected server error processing resource"}
-    finally:
-        if session:
-            await session.close()
-            logger.debug(f"Session closed for get_document_version_content {version_id}")
+        return {"error": f"Unexpected server error processing tool"}
+
+# --- Keep other handlers ---
 
 
 
@@ -662,163 +885,126 @@ async def get_document_content(document_id: int) -> Dict[str, Any]: # No ctx her
             logger.debug(f"Session closed for get_document_content {document_id}")
 
 
+
+
+
+
+
 @mcp_instance.tool()
 async def update_document(
     document_id: int,
     name: Optional[str] = None,
     path: Optional[str] = None,
-    content: Optional[str] = None,
+    content: Optional[str] = None, # Keep content/version args for MCP compatibility
     type: Optional[str] = None,
-    version: Optional[str] = None,  # If provided, creates a new version
+    version: Optional[str] = None, # If provided, creates a new version
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
-    Updates fields for a specific document.
-    If content or version is provided, a new DocumentVersion is created,
-    and the main document record's content/version is updated.
+    Updates fields for a specific document (MCP Tool Wrapper).
+    If content or version is provided, attempts to create a new DocumentVersion.
+    Otherwise, updates metadata fields (name, path, type).
     """
-    logger.info(f"Handling update_document request for ID: {document_id}")
+    logger.info(f"Handling update_document MCP tool request for ID: {document_id}")
     if not ctx:
         logger.error("Context (ctx) argument missing in update_document call.")
         return {"error": "Internal server error: Context missing."}
 
-    if content is not None and version is None:
-        logger.warning(
-            f"Content update provided for doc {document_id} but no new version string was specified.")
-        # Decide on behavior: reject, auto-increment, or use default? Let's reject for now.
-        return {"error": "Version must be specified when updating content."}
+    # --- Logic to handle content/version update (Creating new DocumentVersion) ---
+    # This part requires careful implementation: check version conflicts, etc.
+    # For now, we'll focus the helper and web route on metadata only.
+    # We *could* call the helper first for metadata, then handle versioning.
+    if content is not None and version is not None:
+        logger.warning(f"MCP Tool: Content/version update for doc {document_id} requested - NOT YET FULLY IMPLEMENTED IN HELPER/WEB UI.")
+        # --- Placeholder for future implementation ---
+        # 1. Check if version already exists?
+        # 2. Create new DocumentVersion record
+        # 3. Update main Document record's content and version fields
+        # 4. Handle potential errors
+        # --- End Placeholder ---
+        # For now, return an error or unimplemented message for the MCP client
+        return {"error": "Content/version updates via this tool are not fully implemented yet."}
+        # OR proceed to update metadata only if that's desired alongside versioning later
 
+    # --- Logic to handle metadata update ---
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                document = await session.get(Document, document_id)
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                # Call the refactored helper function for metadata
+                updated_document = await _update_document_in_db(
+                    session=session,
+                    document_id=document_id,
+                    name=name,
+                    path=path,
+                    type=type
+                )
 
-                if document is None:
-                    logger.warning(
-                        f"Document with ID {document_id} not found for update.")
-                    return {"error": f"Document with ID {document_id} not found"}
+        if updated_document is None:
+             # Project not found by helper
+             logger.warning(f"MCP Tool: Document with ID {document_id} not found for metadata update.")
+             return {"error": f"Document with ID {document_id} not found"}
 
-                updated_fields = False
-                new_version_id = None
-
-                # Handle content/version update -> creates new DocumentVersion
-                if content is not None and version is not None:
-                    logger.info(
-                        f"Updating content and version for doc {document_id} to version '{version}'")
-                    # Create new version record
-                    new_version = DocumentVersion(
-                        document_id=document.id,
-                        content=content,
-                        version=version
-                    )
-                    session.add(new_version)
-                    # Update main document record
-                    document.content = content
-                    document.version = version
-                    updated_fields = True
-                    # Flush to get the ID if needed for the response
-                    await session.flush()
-                    await session.refresh(new_version)
-                    new_version_id = new_version.id
-                elif version is not None and document.version != version:
-                    # Allow updating only version string if desired, maybe without new content record?
-                    # For simplicity now, let's assume version only changes with content.
-                    # If you want to allow changing *only* version string, add logic here.
-                    logger.info(
-                        f"Updating version string for doc {document_id} to '{version}' (content not changed).")
-                    document.version = version
-                    updated_fields = True
-
-                # Update other fields if provided and different
-                if name is not None and document.name != name:
-                    document.name = name
-                    updated_fields = True
-                if path is not None and document.path != path:
-                    document.path = path
-                    updated_fields = True
-                if type is not None and document.type != type:
-                    document.type = type
-                    updated_fields = True
-
-                if not updated_fields:
-                    logger.info(
-                        f"No fields provided or values matched current state for document {document_id}.")
-                    # Ensure we return fresh data
-                    await session.refresh(document)
-                    return {
-                        "message": "No update applied to document",
-                        # Return current state
-                        "document": {
-                            "id": document.id, "project_id": document.project_id, "name": document.name,
-                            "path": document.path, "type": document.type, "version": document.version,
-                            "created_at": document.created_at.isoformat() if document.created_at else None,
-                            "updated_at": document.updated_at.isoformat() if document.updated_at else None,
-                        }
-                    }
-
-                logger.info(f"Updating document ID: {document_id}")
-                # updated_at handled by onupdate
-                await session.flush()
-                await session.refresh(document)
-
-            # Transaction commits here
-            logger.info(f"Document {document_id} updated successfully.")
-            response_doc = {
-                "id": document.id, "project_id": document.project_id, "name": document.name,
-                "path": document.path, "type": document.type, "version": document.version,
-                "created_at": document.created_at.isoformat() if document.created_at else None,
-                "updated_at": document.updated_at.isoformat() if document.updated_at else None,
-            }
-            if new_version_id:
-                response_doc["new_version_id"] = new_version_id
-
-            return {
-                "message": "Document updated successfully",
-                "document": response_doc
-            }
-
+        # Format the success response for the MCP client
+        logger.info(f"Document {document_id} metadata updated successfully via MCP tool.")
+        response_doc = {
+            "id": updated_document.id, "project_id": updated_document.project_id,
+            "name": updated_document.name, "path": updated_document.path,
+            "type": updated_document.type, "version": updated_document.version, # Reflect current version
+            "created_at": updated_document.created_at.isoformat() if updated_document.created_at else None,
+            "updated_at": updated_document.updated_at.isoformat() if updated_document.updated_at else None,
+        }
+        return {
+            "message": "Document metadata updated successfully",
+            "document": response_doc
+        }
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error updating document {document_id}: {e}", exc_info=True)
+        logger.error(f"Database error updating document {document_id} metadata via MCP tool: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error updating document {document_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error updating document {document_id} metadata via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
+
+
+
+
+
 
 
 @mcp_instance.tool()
 async def delete_document(document_id: int, ctx: Context) -> Dict[str, Any]:
-    """Deletes a specific document by its ID and its associated versions."""
-    logger.info(f"Handling delete_document request for ID: {document_id}")
+    """Deletes a specific document by its ID and its associated versions (MCP Tool Wrapper)."""
+    logger.info(f"Handling delete_document MCP tool request for ID: {document_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in delete_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
-        async with await get_session(ctx) as session:
-            async with session.begin():  # Use transaction
-                document = await session.get(Document, document_id)
+        async with await get_session(ctx) as session: # Get session via context
+            async with session.begin(): # Use transaction
+                deleted = await _delete_document_in_db(session, document_id)
 
-                if document is None:
-                    logger.warning(
-                        f"Document with ID {document_id} not found for deletion.")
-                    return {"error": f"Document with ID {document_id} not found"}
-
-                logger.info(
-                    f"Deleting document ID: {document_id} ('{document.name}')")
-                await session.delete(document)
-                # Cascaded delete for DocumentVersions should happen automatically
-                # due to `cascade="all, delete-orphan"` in Document.versions relationship.
-            # Commit happens automatically
-
-        logger.info(f"Document {document_id} deleted successfully.")
-        return {"message": f"Document ID {document_id} deleted successfully"}
+        if deleted:
+            logger.info(f"Document {document_id} deleted successfully via MCP tool.")
+            return {"message": f"Document ID {document_id} deleted successfully"}
+        else:
+            logger.error(f"MCP Tool: Failed to delete document {document_id} due to database error during delete.")
+            return {"error": "Database error during document deletion"}
 
     except SQLAlchemyError as e:
-        logger.error(
-            f"Database error deleting document {document_id}: {e}", exc_info=True)
+        logger.error(f"Database error processing delete_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(
-            f"Unexpected error deleting document {document_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error processing delete_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
+
+
+
+
+
+
+
 
 
 # --- Add the following Memory Entry Tools ---

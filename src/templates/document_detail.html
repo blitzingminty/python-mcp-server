@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title }}{% endblock %}
+
+{% block content %}
+
+{% if data.document %}
+    <h1>Document: {{ data.document.name }}</h1>
+
+    {# Action Buttons (Placeholders for now) #}
+    <div style="margin-bottom: 15px;">
+        <a href="{{ request.url_for('ui_view_project', project_id=data.document.project_id) }}">Back to Project</a> |
+        <a href="{{ request.url_for('ui_edit_document', doc_id=data.document.id) }}">Edit Document</a>  |
+        <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=data.document.id) }}" style="display: inline;"
+        onsubmit="return confirm('Are you sure you want to delete document \'{{ data.document.name }}\'? This cannot be undone.');">
+    <button type="submit" style="border: none; background: none; color: blue; text-decoration: underline; cursor: pointer; padding: 0;">Delete Document</button> {# Link-like button #}
+  </form>
+  </div>
+
+    {# Basic Details #}
+    <p><strong>ID:</strong> {{ data.document.id }}</p>
+    <p><strong>Project ID:</strong> {{ data.document.project_id }}</p>
+    <p><strong>Path:</strong> {{ data.document.path }}</p>
+    <p><strong>Type:</strong> {{ data.document.type }}</p>
+    <p><strong>Current Version:</strong> {{ data.document.version }}</p>
+    <p><strong>Created:</strong> {{ data.document.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.created_at else '-' }}</p>
+    <p><strong>Updated:</strong> {{ data.document.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.updated_at else '-' }}</p>
+
+    <hr>
+
+    {# Document Content #}
+    <h2>Content</h2>
+    {# Display content safely. Use <pre> for plain text or consider markdown conversion if applicable #}
+    <pre style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; max-height: 400px; overflow-y: auto;">{{ data.document.content }}</pre>
+
+    <hr>
+
+    {# Tags Section #}
+    <h2>Tags</h2>
+    {% if data.document.tags %}
+        <ul style="list-style: none; padding-left: 0;">
+            {% for tag in data.document.tags %}
+                <li style="display: inline-block; margin-right: 5px; background-color: #e9ecef; padding: 2px 5px; border-radius: 3px;">
+                    {{ tag.name }}
+                    {# Placeholder for remove tag button #}
+                    <form method="post" action="#" style="display: inline; margin-left: 3px;"><button type="submit" style="border: none; background: none; color: red; cursor: pointer; padding: 0;">&times;</button></form>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No tags associated with this document.</p>
+    {% endif %}
+    {# Placeholder for adding a tag #}
+    <form method="post" action="#" style="margin-top: 5px;">
+        <input type="text" name="tag_name" placeholder="New tag name" required>
+        <button type="submit">Add Tag</button>
+    </form>
+
+    <hr>
+
+    {# Versions Section #}
+    <h2>Versions</h2>
+    {% if data.document.versions %}
+        <table border="1" style="border-collapse: collapse; width: 100%;">
+            <thead>
+                <tr>
+                    <th>Version ID</th>
+                    <th>Version String</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for version in data.document.versions %}
+                <tr>
+                    <td>{{ version.id }}</td>
+                    <td>
+                        {{ version.version_string }}
+                        {% if version.version_string == data.document.version %}<strong style="color: green;"> (Current)</strong>{% endif %}
+                    </td>
+                    <td>{{ version.created_at.strftime('%Y-%m-%d %H:%M:%S') if version.created_at else '-' }}</td>
+                    <td>
+                        {# Placeholder link for viewing specific version content #}
+                        <a href="#">View Content</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No historical versions found for this document.</p>
+    {% endif %}
+
+{% else %}
+    {# This part might not be reached if using HTTPException for not found #}
+    <h1>Document Not Found</h1>
+    <p>The requested document could not be found.</p>
+    <p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+{% endif %}
+
+{% endblock %}

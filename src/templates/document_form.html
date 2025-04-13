@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title | default('Document Form') }}{% endblock %}
+
+{% block content %}
+<h1>{{ data.page_title | default('Document Form') }}</h1>
+
+{% if data.error %}
+<div class="alert alert-danger" role="alert">
+  Error: {{ data.error }}
+</div>
+{% endif %}
+
+{# Form posts to the correct handler URL passed in context #}
+<form method="post" action="{{ data.form_action }}">
+
+  <div class="mb-3">
+    <label for="name" class="form-label">Document Name</label>
+    <input type="text" class="form-control" id="name" name="name"
+           value="{{ data.document.name if data.document else '' }}" required> {# Pre-fill #}
+  </div>
+
+  <div class="mb-3">
+    <label for="path" class="form-label">Path</label>
+    <input type="text" class="form-control" id="path" name="path"
+           value="{{ data.document.path if data.document else '' }}" {# Pre-fill #}
+           placeholder="e.g., /docs/main.py or unique/identifier" required>
+  </div>
+
+  <div class="mb-3">
+    <label for="type" class="form-label">Type (MIME type)</label>
+    <input type="text" class="form-control" id="type" name="type"
+           value="{{ data.document.type if data.document else '' }}" {# Pre-fill #}
+           placeholder="e.g., text/plain, text/markdown, application/json" required>
+  </div>
+
+  {# --- Hide Content and Version fields in Edit mode --- #}
+  {% if not data.is_edit_mode %}
+  <div class="mb-3">
+    <label for="version" class="form-label">Initial Version</label>
+    <input type="text" class="form-control" id="version" name="version" value="1.0.0">
+     <small class="form-text text-muted">Optional, defaults to "1.0.0".</small>
+  </div>
+
+  <div class="mb-3">
+    <label for="content" class="form-label">Content</label>
+    <textarea class="form-control" id="content" name="content" rows="10" required></textarea>
+  </div>
+  {% else %}
+  {# Optionally show current version or content read-only #}
+  <p><em>Note: Content and version history are managed separately. Edit metadata here.</em></p>
+  <p><strong>Current Version:</strong> {{ data.document.version }}</p>
+  {% endif %}
+  {# --- End Hide --- #}
+
+  <button type="submit" class="btn btn-primary">
+    {# Adjust button text based on mode #}
+    {% if data.is_edit_mode %}Update Document Metadata{% else %}Add Document{% endif %}
+  </button>
+  <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+
+</form>
+
+{% endblock %}

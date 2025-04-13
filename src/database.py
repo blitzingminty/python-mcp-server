@@ -1,21 +1,42 @@
 # src/database.py
-# Placeholder for database.py logic
 
+import logging # Add logging import
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import event # <--- Import event listener
+from sqlalchemy.engine import Engine # <--- Import Engine for type hinting
 from .config import settings # Import settings from config.py
 
+logger = logging.getLogger(__name__) # <--- Add logger
+
 # Create an asynchronous engine instance based on the DATABASE_URL from settings
-# Using future=True enables modern SQLAlchemy 2.0 features
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.ENVIRONMENT == "development", # Log SQL queries in development
     future=True
 )
 
+# --- Add SQLite PRAGMA enforcement ---
+# This is crucial for ON DELETE CASCADE to work with SQLite
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """Execute PRAGMA foreign_keys=ON for SQLite connections."""
+    # Check if the driver is SQLite
+    if engine.dialect.name == "sqlite":
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON;")
+            cursor.close()
+            logger.debug("PRAGMA foreign_keys=ON executed for new SQLite connection.")
+        except Exception as e:
+            # Log error if PRAGMA execution fails
+            logger.error(f"Failed to execute PRAGMA foreign_keys=ON: {e}", exc_info=True)
+    # For other database types, this listener does nothing
+
+# --- End SQLite PRAGMA enforcement ---
+
+
 # Create an asynchronous session factory
-# expire_on_commit=False prevents attributes from expiring after commit,
-# useful in async contexts and with FastAPI dependencies.
 AsyncSessionFactory = sessionmaker(
     engine,
     class_=AsyncSession,
@@ -23,10 +44,9 @@ AsyncSessionFactory = sessionmaker(
 )
 
 # Base class for declarative models
-# All your database models will inherit from this class
 Base = declarative_base()
 
-# --- Dependency for FastAPI ---
+# --- Dependency for FastAPI (keep as is) ---
 async def get_db_session() -> AsyncSession:
     """
     FastAPI dependency that yields an async database session.
@@ -35,28 +55,23 @@ async def get_db_session() -> AsyncSession:
     async with AsyncSessionFactory() as session:
         try:
             yield session
-            # Optionally commit here if you want auto-commit behavior
-            # await session.commit()
         except Exception:
             await session.rollback()
             raise
         finally:
-            # No explicit close needed for async context manager `async with`
-            pass
+            pass # Session closed automatically by context manager
 
-# --- Optional: Function to initialize database (create tables) ---
-# You might use Alembic for migrations instead for more complex setups
+# --- Optional: Function to initialize database (keep as is) ---
 async def init_db():
     """
     Initializes the database by creating all tables defined by models
     inheriting from Base. Use with caution, consider Alembic for production.
     """
     async with engine.begin() as conn:
-        # Drop all tables (useful for quick resets in dev, DANGEROUS otherwise)
-        # await conn.run_sync(Base.metadata.drop_all)
-        # Create all tables
         await conn.run_sync(Base.metadata.create_all)
     print("Database tables initialized (if not already existing).")
+    
+    
 
 # --- Example Usage (can remove later) ---
 if __name__ == "__main__":
