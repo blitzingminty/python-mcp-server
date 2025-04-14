@@ -3,44 +3,58 @@
 {% block title %}{{ data.page_title | default('Project Form') }}{% endblock %}
 
 {% block content %}
-<h1>{{ data.page_title | default('Project Form') }}</h1>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ data.page_title | default('Project Form') }}</h1>
+</div>
 
+{# Display errors using Bootstrap alerts #}
 {% if data.error %}
-<div class="alert alert-danger" role="alert">
-  Error: {{ data.error }}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
 {% endif %}
 
 <form method="post" action="{{ data.form_action }}">
 
+  {# Project Name #}
   <div class="mb-3">
     <label for="name" class="form-label">Project Name</label>
     <input type="text" class="form-control" id="name" name="name"
            value="{{ data.project.name if data.project else '' }}" required>
   </div>
 
+  {# Path #}
   <div class="mb-3">
     <label for="path" class="form-label">Path</label>
     <input type="text" class="form-control" id="path" name="path"
            value="{{ data.project.path if data.project else '' }}" required>
+     <div id="pathHelp" class="form-text">Unique identifier or path for the project's data.</div>
   </div>
 
+  {# Description #}
   <div class="mb-3">
     <label for="description" class="form-label">Description</label>
     <textarea class="form-control" id="description" name="description" rows="3">{{ data.project.description if data.project and data.project.description else '' }}</textarea>
   </div>
 
+  {# Is Active Checkbox #}
   <div class="mb-3 form-check">
-    <label class="form-check-label" for="is_active">Is Active</label>
+    {# Hidden input ensures 'false' is sent if checkbox is unchecked #}
     <input type="hidden" name="is_active" value="false" />
     <input type="checkbox" class="form-check-input" id="is_active" name="is_active" value="true"
            {% if data.project and data.project.is_active %}checked{% endif %}>
+    <label class="form-check-label" for="is_active">Set as Active Project</label>
+     <small class="form-text d-block text-muted">Only one project can be active at a time.</small>
   </div>
-  
-  <button type="submit" class="btn btn-primary">
-    {% if data.is_edit_mode %}Update Project{% else %}Create Project{% endif %}
-  </button>
-  <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+
+  {# Action Buttons #}
+  <div class="mt-4"> {# Add some margin top #}
+      <button type="submit" class="btn btn-primary">
+        {% if data.is_edit_mode %}Update Project{% else %}Create Project{% endif %}
+      </button>
+      <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+  </div>
 
 </form>
 

@@ -1,0 +1,70 @@
+{# src/templates/version_detail.html #}
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title | default('Document Version Detail') }}{% endblock %}
+
+{% block content %}
+
+{# Display errors using Bootstrap alerts #}
+{% if data.error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+{% if data.version and data.version.document %} {# Check if version and its parent document exist #}
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2 text-break">{{ data.page_title }}</h1>
+         <div class="btn-toolbar mb-2 mb-md-0">
+            <a href="{{ request.url_for('ui_view_document', doc_id=data.version.document_id) }}" class="btn btn-sm btn-outline-secondary">
+                &larr; Back to Document '{{ data.version.document.name }}'
+            </a>
+         </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">
+            Version Details
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">Version ID:</dt>
+                <dd class="col-sm-9">{{ data.version.id }}</dd>
+
+                <dt class="col-sm-3">Version String:</dt>
+                <dd class="col-sm-9">{{ data.version.version }}</dd>
+
+                <dt class="col-sm-3">Created At:</dt>
+                <dd class="col-sm-9">{{ data.version.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.version.created_at else '-' }}</dd>
+
+                <dt class="col-sm-3">Parent Document ID:</dt>
+                <dd class="col-sm-9"><a href="{{ request.url_for('ui_view_document', doc_id=data.version.document_id) }}">{{ data.version.document_id }}</a></dd>
+
+                <dt class="col-sm-3">Parent Document Name:</dt>
+                <dd class="col-sm-9"><a href="{{ request.url_for('ui_view_document', doc_id=data.version.document_id) }}">{{ data.version.document.name }}</a></dd>
+
+                <dt class="col-sm-3">Document Type:</dt>
+                <dd class="col-sm-9">{{ data.version.document.type }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    {# Version Content #}
+    <div class="card">
+        <div class="card-header">
+            Content for Version {{ data.version.version }}
+        </div>
+         <div class="card-body">
+            <pre>{{ data.version.content }}</pre> {# Uses custom pre style from base.html #}
+         </div>
+    </div>
+
+{% else %}
+    <div class="alert alert-warning" role="alert">
+      Version not found or could not be loaded.
+    </div>
+     <a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-secondary">Back to Projects List</a>
+{% endif %}
+
+{% endblock %}

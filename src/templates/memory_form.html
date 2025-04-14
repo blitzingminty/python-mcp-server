@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title | default('Memory Entry Form') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ data.page_title | default('Memory Entry Form') }}</h1>
+</div>
+
+{# Display errors using Bootstrap alerts #}
+{% if data.error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<form method="post" action="{{ data.form_action }}">
+
+  {# Title #}
+  <div class="mb-3">
+    <label for="title" class="form-label">Title</label>
+    <input type="text" class="form-control" id="title" name="title"
+           value="{{ data.entry.title if data.entry else '' }}" required> {# Pre-fill #}
+  </div>
+
+  {# Type #}
+  <div class="mb-3">
+    <label for="type" class="form-label">Type</label>
+    <input type="text" class="form-control" id="type" name="type"
+           value="{{ data.entry.type if data.entry else '' }}" {# Pre-fill #}
+           placeholder="e.g., note, chat_snippet, user_preference" required>
+      <div id="typeHelp" class="form-text">A category for this memory entry.</div>
+  </div>
+
+  {# Content #}
+  <div class="mb-3">
+    <label for="content" class="form-label">Content</label>
+    {# Content is editable in both add and edit mode for memory entries #}
+    <textarea class="form-control" id="content" name="content" rows="10" required>{{ data.entry.content if data.entry else '' }}</textarea> {# Pre-fill #}
+  </div>
+
+  {# Action Buttons #}
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary">
+      {# Adjust button text based on mode #}
+      {% if data.is_edit_mode %}Update Memory Entry{% else %}Add Memory Entry{% endif %}
+    </button>
+    <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+  </div>
+
+</form>
+
+{% endblock %}

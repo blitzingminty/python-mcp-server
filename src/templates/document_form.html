@@ -3,30 +3,37 @@
 {% block title %}{{ data.page_title | default('Document Form') }}{% endblock %}
 
 {% block content %}
-<h1>{{ data.page_title | default('Document Form') }}</h1>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ data.page_title | default('Document Form') }}</h1>
+</div>
 
+{# Display errors using Bootstrap alerts #}
 {% if data.error %}
-<div class="alert alert-danger" role="alert">
-  Error: {{ data.error }}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
 {% endif %}
 
-{# Form posts to the correct handler URL passed in context #}
 <form method="post" action="{{ data.form_action }}">
 
+  {# Document Name #}
   <div class="mb-3">
     <label for="name" class="form-label">Document Name</label>
     <input type="text" class="form-control" id="name" name="name"
            value="{{ data.document.name if data.document else '' }}" required> {# Pre-fill #}
   </div>
 
+  {# Path #}
   <div class="mb-3">
     <label for="path" class="form-label">Path</label>
     <input type="text" class="form-control" id="path" name="path"
            value="{{ data.document.path if data.document else '' }}" {# Pre-fill #}
            placeholder="e.g., /docs/main.py or unique/identifier" required>
+     <div id="pathHelp" class="form-text">File path or unique identifier for this document within the project.</div>
   </div>
 
+  {# Type #}
   <div class="mb-3">
     <label for="type" class="form-label">Type (MIME type)</label>
     <input type="text" class="form-control" id="type" name="type"
@@ -39,7 +46,7 @@
   <div class="mb-3">
     <label for="version" class="form-label">Initial Version</label>
     <input type="text" class="form-control" id="version" name="version" value="1.0.0">
-     <small class="form-text text-muted">Optional, defaults to "1.0.0".</small>
+     <div id="versionHelp" class="form-text text-muted">Optional, defaults to "1.0.0". Used for the first version entry.</div>
   </div>
 
   <div class="mb-3">
@@ -47,17 +54,22 @@
     <textarea class="form-control" id="content" name="content" rows="10" required></textarea>
   </div>
   {% else %}
-  {# Optionally show current version or content read-only #}
-  <p><em>Note: Content and version history are managed separately. Edit metadata here.</em></p>
-  <p><strong>Current Version:</strong> {{ data.document.version }}</p>
+  {# Optionally show current version or content read-only in edit mode #}
+  <div class="alert alert-secondary small" role="alert">
+    Note: Content and version history are managed separately. Edit metadata (name, path, type) here.
+  </div>
+  <p><strong>Current Version String:</strong> {{ data.document.version }}</p>
   {% endif %}
   {# --- End Hide --- #}
 
-  <button type="submit" class="btn btn-primary">
-    {# Adjust button text based on mode #}
-    {% if data.is_edit_mode %}Update Document Metadata{% else %}Add Document{% endif %}
-  </button>
-  <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+  {# Action Buttons #}
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary">
+      {# Adjust button text based on mode #}
+      {% if data.is_edit_mode %}Update Document Metadata{% else %}Add Document{% endif %}
+    </button>
+    <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+  </div>
 
 </form>
 

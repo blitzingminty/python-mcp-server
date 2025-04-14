@@ -1,0 +1,240 @@
+{# src/templates/memory_detail.html #}
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title | default('Memory Entry Detail') }}{% endblock %}
+
+{% block content %}
+
+{# Display errors passed via query parameter #}
+{% if data.error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <strong>Error:</strong> {{ data.error }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+{% if data.entry %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2 text-break">Memory Entry: {{ data.entry.title }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ request.url_for('ui_view_project', project_id=data.entry.project_id) }}"
+                class="btn btn-sm btn-outline-secondary">Back to Project</a>
+            <a href="{{ request.url_for('ui_edit_memory_entry', entry_id=data.entry.id) }}"
+                class="btn btn-sm btn-outline-secondary">Edit Entry</a>
+            <form method="post" action="{{ request.url_for('ui_delete_memory_entry', entry_id=data.entry.id) }}"
+                style="display: inline;"
+                onsubmit="return confirm('Are you sure you want to delete memory entry \'{{ data.entry.title }}\'? This cannot be undone.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete Entry</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    {# --- Column 1: Details, Tags, Linked Docs --- #}
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">Details</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">ID:</dt>
+                    <dd class="col-sm-8">{{ data.entry.id }}</dd>
+
+                    <dt class="col-sm-4">Project ID:</dt>
+                    <dd class="col-sm-8"><a
+                            href="{{ request.url_for('ui_view_project', project_id=data.entry.project_id) }}">{{
+                            data.entry.project_id }}</a></dd>
+
+                    <dt class="col-sm-4">Title:</dt>
+                    <dd class="col-sm-8 text-break">{{ data.entry.title }}</dd>
+
+                    <dt class="col-sm-4">Type:</dt>
+                    <dd class="col-sm-8">{{ data.entry.type }}</dd>
+
+                    <dt class="col-sm-4">Created:</dt>
+                    <dd class="col-sm-8">{{ data.entry.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.entry.created_at
+                        else '-' }}</p>
+
+                    <dt class="col-sm-4">Updated:</dt>
+                    <dd class="col-sm-8">{{ data.entry.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.entry.updated_at
+                        else '-' }}</p>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Tags</div>
+            <div class="card-body">
+                {# Tags Section #}
+                {% if data.tags %}
+                <ul class="list-unstyled tag-list">
+                    {% for tag_name in data.tags %} {# Use pre-formatted tag names from route #}
+                    <li class="tag-item">
+                        {{ tag_name }}
+                        <form method="post"
+                            action="{{ request.url_for('ui_remove_tag_from_memory_entry', entry_id=data.entry.id) }}">
+                            <input type="hidden" name="tag_name" value="{{ tag_name }}">
+                            <button type="submit" title="Remove tag '{{ tag_name }}'">&times;</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">No tags associated.</p>
+                {% endif %}
+                {# Add Tag Form #}
+                <form method="post" action="{{ request.url_for('ui_add_tag_to_memory_entry', entry_id=data.entry.id) }}"
+                    class="add-tag-form mt-2">
+                    <label for="tag_name" class="visually-hidden">Add Tag:</label>
+                    <input type="text" id="tag_name" name="tag_name" placeholder="Add new tag" required
+                        class="form-control form-control-sm">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Add</button>
+                </form>
+            </div>
+        </div>
+
+        {# --- MODIFIED Linked Documents Section --- #}
+        <div class="card">
+            <div class="card-header">Linked Documents</div>
+            <div class="card-body">
+                {# List Existing Links with Unlink buttons #}
+                {% if data.linked_documents %}
+                <ul class="list-group list-group-flush mb-3">
+                    {% for doc in data.linked_documents %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>
+                            <a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">{{ doc.name }}</a>
+                            <small class="text-muted">(ID: {{ doc.id }})</small>
+                        </span>
+                        {# Unlink Form/Button #}
+                        <form method="post" action="{{ request.url_for('ui_unlink_memory_from_document', entry_id=data.entry.id, doc_id=doc.id) }}" class="ms-2" style="display: inline;"
+                              onsubmit="return confirm('Are you sure you want to unlink document \'{{ doc.name }}\'?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">Unlink</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">No documents linked.</p>
+                {% endif %}
+
+                {# Form to Link New Document #}
+                {% if data.available_documents %}
+                <form method="post" action="{{ request.url_for('ui_link_memory_to_document', entry_id=data.entry.id) }}"
+                    class="mt-3 border-top pt-3">
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" name="document_id" id="document_id" required>
+                            <option value="" selected disabled>-- Select Document to Link --</option>
+                            {% for doc in data.available_documents %}
+                            {# Optionally filter out already linked documents if needed #}
+                            {% if doc.id not in data.linked_documents|map(attribute='id') %}
+                            <option value="{{ doc.id }}">{{ doc.name }} (ID: {{ doc.id }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary" type="submit">Link Document</button>
+                    </div>
+                </form>
+                {% else %}
+                <p class="text-muted small mt-3 border-top pt-3">No other documents available in this project to link.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {# --- END MODIFIED Linked Documents Section --- #}
+
+
+    </div> {# End Column 1 #}
+
+    {# --- Column 2: Content & Related Entries --- #}
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">Content</div>
+            <div class="card-body">
+                <pre>{{ data.entry.content }}</pre>
+            </div>
+        </div>
+
+        {# --- MODIFIED Related Memory Entries Section --- #}
+        <div class="card">
+            <div class="card-header">Related Memory Entries</div>
+            <div class="card-body">
+                 {# List Existing Relations #}
+                 {% if data.relations_from or data.relations_to %}
+                    {% if data.relations_from %}
+                        <h6 class="card-subtitle mb-2 text-muted">Relations From This Entry:</h6>
+                        <ul class="list-group list-group-flush mb-3">
+                            {% for rel in data.relations_from %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span>
+                                        <a href="{{ request.url_for('ui_view_memory_entry', entry_id=rel.target_id) }}">{{ rel.target_title }}</a>
+                                        <small class="text-muted">(ID: {{ rel.target_id }}, Type: {{ rel.type | default('Generic') }})</small>
+                                    </span>
+                                    {# Unlink Form/Button (uses relation_id) #}
+                                    <form method="post" action="{{ request.url_for('ui_unlink_memory_relation', relation_id=rel.relation_id) }}" class="ms-2" style="display: inline;"
+                                          onsubmit="return confirm('Are you sure you want to unlink this relation (ID: {{ rel.relation_id }})?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">Unlink</button>
+                                    </form>
+                                </li>
+                           {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% if data.relations_to %}
+                         <h6 class="card-subtitle mb-2 text-muted">Relations To This Entry:</h6>
+                         <ul class="list-group list-group-flush mb-3">
+                            {% for rel in data.relations_to %}
+                                 <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span>
+                                        <a href="{{ request.url_for('ui_view_memory_entry', entry_id=rel.source_id) }}">{{ rel.source_title }}</a>
+                                        <small class="text-muted">(ID: {{ rel.source_id }}, Type: {{ rel.type | default('Generic') }})</small>
+                                    </span>
+                                    {# Unlink Form/Button (uses relation_id) #}
+                                    <form method="post" action="{{ request.url_for('ui_unlink_memory_relation', relation_id=rel.relation_id) }}" class="ms-2" style="display: inline;"
+                                          onsubmit="return confirm('Are you sure you want to unlink this relation (ID: {{ rel.relation_id }})?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">Unlink</button>
+                                    </form>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted">No related memory entries.</p>
+                {% endif %}
+
+                {# Form to Link New Memory Entry #}
+                {% if data.available_memory_entries %}
+                <form method="post" action="{{ request.url_for('ui_link_memory_to_memory', entry_id=data.entry.id) }}" class="mt-3 border-top pt-3">
+                     <label for="target_entry_id" class="form-label small">Link to another Memory Entry:</label>
+                     <div class="input-group input-group-sm mb-2">
+                         <select class="form-select" name="target_entry_id" id="target_entry_id" required>
+                             <option value="" selected disabled>-- Select Entry --</option>
+                             {% for mem_entry in data.available_memory_entries %}
+                                 <option value="{{ mem_entry.id }}">{{ mem_entry.title }} (ID: {{ mem_entry.id }})</option>
+                             {% endfor %}
+                         </select>
+                     </div>
+                     <div class="input-group input-group-sm mb-2">
+                          <span class="input-group-text" style="font-size: 0.8em;">Relation Type</span>
+                          <input type="text" class="form-control" name="relation_type" placeholder="(Optional, e.g., related, alternative)">
+                     </div>
+                     <button class="btn btn-sm btn-outline-primary" type="submit">Link Entry</button>
+                </form>
+                {% else %}
+                     <p class="text-muted small mt-3 border-top pt-3">No other memory entries available in this project to link.</p>
+                {% endif %}
+           </div>
+        </div>
+        {# --- END MODIFIED Related Memory Entries Section --- #}
+        </div> {# End Column 2 #}
+
+</div> {# End row #}
+
+{% else %}
+<div class="alert alert-warning" role="alert">
+    Memory Entry not found or could not be loaded.
+</div>
+<a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-secondary">Back to Projects List</a>
+{% endif %}
+
+{% endblock %}

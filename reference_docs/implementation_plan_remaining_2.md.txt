@@ -1,0 +1,122 @@
+# Implementation Plan: MCP Server Web UI (Version 3 - 2025-04-14)
+
+**Project:** Python MCP Server with FastAPI Web UI for Maintenance
+
+---
+**IMPORTANT NOTE FOR RESUMING WORK:**
+
+**Before starting or resuming implementation based on this plan in a new session, please ensure you have the latest versions of the following project files to provide the most current code context:**
+
+* **Python Files:**
+    * `src/main.py`
+    * `src/web_routes.py`
+    * `src/mcp_server_instance.py`
+    * `src/models.py`
+    * `src/database.py`
+    * `src/config.py` (if exists)
+* **HTML Template Files:** All relevant `.html` files currently existing within the `src/templates/` directory (e.g., `base.html`, `index.html`, `projects.html`, `project_detail.html`, `project_form.html`, `document_detail.html`, `document_form.html`, `memory_detail.html`, `memory_form.html`, `version_detail.html`, etc.).
+* **Static Files:** Potentially `src/static/style.css` if custom styles beyond Bootstrap are added.
+
+---
+
+**Goal:** Build a web-based user interface using FastAPI and Jinja2 templates to allow viewing and detailed management (Create, Read, Update, Delete, Link/Unlink, Versioning where applicable) of the Projects, Documents, and Memory Entries managed by the backend MCP server.
+
+**Current Status (Summary):**
+
+* **Backend:** Functionally complete MCP tools and DB helpers for CRUD operations on Projects, Documents (metadata), Memory Entries, Tags, and Relationships exist in `src/mcp_server_instance.py`. Database models (`src/models.py`) and setup (`src/database.py`) are complete. Direct helper call pattern established.
+* **Web UI (Phase 1 - Projects):** CRUD operations fully implemented via web forms and routes.
+* **Web UI (Phase 2 - Documents):** Metadata CRUD, tagging, and version *viewing* links implemented via web forms and routes. Document *content* update/version creation is not yet implemented via UI.
+* **Web UI (Phase 3 - Memory):** CRUD operations and tagging implemented via web forms and routes. Relationship *display* implemented on detail page; relationship *management* (linking/unlinking) via UI is not yet implemented.
+* **Styling (Phase 4 partially done):** Bootstrap 5 integrated via CDN in `base.html`. All existing templates updated to use Bootstrap classes for layout, navigation, tables, forms, buttons, etc.
+
+---
+
+**Remaining Implementation Steps**
+
+**(Using Direct Helper Call Pattern)**
+
+**Phase 4: UI Refinements & Completion**
+
+1.  **Dashboard Counts:**
+    * **Goal:** Display actual counts on the index page.
+    * **Tasks:**
+        * Modify `web_routes.py::ui_root`: Add DB queries (e.g., `select(func.count(Model.id))`) to count total `Project`, `Document`, and `MemoryEntry` records. Pass counts to the template context (e.g., `project_count`, `document_count`, `memory_entry_count`).
+        * Update `templates/index.html`: Replace `[Count]` placeholders with Jinja2 variables (e.g., `{{ data.project_count }}`).
+2.  **Top-Level List Views & Navigation:**
+    * **Goal:** Enable main "Documents" and "Memory" navbar links by creating list pages showing *all* items across projects.
+    * **Tasks (Documents):**
+        * Add route `GET /ui/documents` (name `ui_list_documents_all`) in `web_routes.py`. Fetch all `Document` records, `selectinload` the parent `Project` for display, order by `Document.name`. Pass documents list to the template.
+        * Create template `src/templates/documents_list.html`. It should extend `base.html` and display documents in a Bootstrap table (ID, Name, Project Name (linked to project detail), Type, Version, Updated, Actions[View, Edit, Delete]). Handle empty list case.
+        * Update `templates/base.html`: Remove `disabled` class from "Documents" link, set `href="{{ request.url_for('ui_list_documents_all') }}"`. Add active state logic (e.g., `{% set doc_list_path = request.url_for('ui_list_documents_all').path %}{% set is_active = request.url.path == doc_list_path or request.url.path.startswith('/ui/documents/') or request.url.path.startswith('/ui/versions/') %}`).
+    * **Tasks (Memory Entries):**
+        * Add route `GET /ui/memory` (name `ui_list_memory_entries_all`) in `web_routes.py`. Fetch all `MemoryEntry` records, `selectinload` the parent `Project`, order by `MemoryEntry.updated_at.desc()`. Pass entries list to the template.
+        * Create template `src/templates/memory_entries_list.html`. Extend `base.html`, display entries in a Bootstrap table (ID, Title, Project Name (linked), Type, Updated, Actions[View, Edit, Delete]). Handle empty list case.
+        * Update `templates/base.html`: Remove `disabled` class from "Memory" link, set `href="{{ request.url_for('ui_list_memory_entries_all') }}"`. Add active state logic (e.g., `{% set mem_list_path = request.url_for('ui_list_memory_entries_all').path %}{% set is_active = request.url.path == mem_list_path or request.url.path.startswith('/ui/memory/') %}`).
+
+**Phase 5: Document Content Update UI**
+
+1.  **Goal:** Allow creating new document versions by submitting updated content via the UI.
+2.  **Refactor (`mcp_server_instance.py`):**
+    * Create helper `async def _add_document_version_db(session: AsyncSession, document_id: int, content: str, version_string: str) -> tuple[Document | None, DocumentVersion | None]:`
+        * Fetch the `Document` by `document_id`. Return `(None, None)` if not found.
+        * Create a new `DocumentVersion` record with the provided `content` and `version_string`.
+        * Update the parent `Document` record's `content` and `version` fields to match the new version.
+        * Add the new `DocumentVersion` to the session. Flush and refresh both objects.
+        * Return the updated `Document` and the new `DocumentVersion`. Handle potential `SQLAlchemyError`.
+    * *(Optional Refactor)* Modify `update_document` MCP tool if it should also support content updates (currently it explicitly doesn't).
+3.  **Routes (`web_routes.py`):**
+    * Add route `GET /documents/{doc_id}/new_version` (name `ui_new_version_form`):
+        * Fetch the *current* document using `db.get(Document, doc_id)`. Handle 404.
+        * Render a new template `templates/version_form.html`, passing the current document data (for context/display) and the target POST URL.
+    * Add route `POST /documents/{doc_id}/versions` (name `ui_create_version`):
+        * Takes `doc_id`, `request`, `db=Depends(get_db_session)`, `content: str = Form(...)`, `version_string: str = Form(...)`.
+        * Validate `version_string` (e.g., ensure it's not empty).
+        * Call `_add_document_version_db` within a `db.begin()` block.
+        * Handle success (redirect to `ui_view_document`) or failure (redirect back to `ui_new_version_form` with error).
+4.  **Templates:**
+    * Create `src/templates/version_form.html`:
+        * Extend `base.html`.
+        * Show parent document info (ID, Name).
+        * Display current version string (`data.document.version`).
+        * Include form fields for `version_string` (new version name/number) and `content` (textarea, pre-filled with *current* document content `data.document.content` for editing).
+        * Form POSTs to `request.url_for('ui_create_version', doc_id=data.document.id)`.
+        * Include Cancel button linking back to `ui_view_document`.
+    * Update `src/templates/document_detail.html`: Add a button/link (e.g., near the "Edit Metadata" button) pointing to `request.url_for('ui_new_version_form', doc_id=data.document.id)`. Text: "Create New Version".
+
+**Phase 6: Relationship Management UI**
+
+1.  **Goal:** Allow linking and unlinking Memory Entries to Documents and other Memory Entries via the UI.
+2.  **Memory-Document Linking UI:**
+    * **Refactor (`web_routes.py::view_memory_entry_web`):** Modify the `GET /ui/memory/{entry_id}` route to fetch a list of *all available documents* (or documents within the same project) that could potentially be linked. Pass this list (e.g., `available_documents`) to the `memory_detail.html` context.
+    * **Update (`templates/memory_detail.html`):**
+        * In the "Linked Documents" section, add a form:
+            * Include a `<select>` dropdown (name="document_id") populated with options from `data.available_documents` (value=doc.id, text=doc.name).
+            * Include a "Link Document" submit button.
+            * Form POSTs to `request.url_for('ui_link_memory_to_document', entry_id=data.entry.id)`.
+        * Next to each document listed in the "Linked Documents" list, add an "Unlink" button within a small form:
+            * Form POSTs to `request.url_for('ui_unlink_memory_from_document', entry_id=data.entry.id, doc_id=doc.id)`. *(Requires modifying the unlink route)*.
+    * **Routes (`web_routes.py`):**
+        * Add route `POST /memory/{entry_id}/links/documents` (name `ui_link_memory_to_document`): Takes `entry_id`, `db`, `document_id: int = Form(...)`. Calls `link_memory_entry_to_document` helper/tool. Redirects back to `ui_view_memory_entry`.
+        * Add route `POST /memory/{entry_id}/links/documents/{doc_id}/unlink` (name `ui_unlink_memory_from_document`): Takes `entry_id`, `doc_id`, `db`. Calls `unlink_memory_entry_from_document` helper/tool. Redirects back to `ui_view_memory_entry`. *(Note: Route path changed slightly from plan to include doc_id)*.
+3.  **Memory-Memory Linking UI:**
+    * **Refactor (`web_routes.py::view_memory_entry_web`):** Modify the `GET /ui/memory/{entry_id}` route to fetch a list of *other available memory entries* within the same project (excluding the current one). Pass this list (e.g., `available_memory_entries`) to the `memory_detail.html` context.
+    * **Update (`templates/memory_detail.html`):**
+        * In the "Related Memory Entries" section, add a form:
+            * Include a `<select>` dropdown (name="target_entry_id") populated with options from `data.available_memory_entries`.
+            * Include a text input for `relation_type` (optional).
+            * Include a "Link Entry" submit button.
+            * Form POSTs to `request.url_for('ui_link_memory_to_memory', entry_id=data.entry.id)`.
+        * Next to each relation listed (both "from" and "to"), add an "Unlink" button within a small form:
+            * Form POSTs to `request.url_for('ui_unlink_memory_relation', relation_id=rel.relation_id)`.
+    * **Routes (`web_routes.py`):**
+        * Add route `POST /memory/{entry_id}/links/memory` (name `ui_link_memory_to_memory`): Takes `entry_id`, `db`, `target_entry_id: int = Form(...)`, `relation_type: Optional[str] = Form(None)`. Calls `link_memory_entries` helper/tool. Redirects back to `ui_view_memory_entry`.
+        * Add route `POST /memory/relations/{relation_id}/unlink` (name `ui_unlink_memory_relation`): Takes `relation_id`, `db`. Calls `unlink_memory_entries` helper/tool. **Crucially:** Must redirect back to the *source* memory entry detail page, which might require fetching the relation first to get the `source_memory_entry_id` before deleting it, or passing it somehow. *Alternative:* Redirect back to `request.headers.get("Referer")` if reliable, or just to the main memory list `/ui/memory`. *Decision:* Redirect back to `/ui/memory` for simplicity unless source ID easily available.
+
+**Phase 7: Final Refinements (Lower Priority / Optional)**
+
+1.  **Error Handling:** Improve contextual display of form errors. Implement custom 404/500 error pages.
+2.  **User Feedback:** Implement flash messaging system using session middleware.
+3.  **Code Refactoring:** Review backend helpers/routes for consolidation and logging consistency.
+
+---
+**End Goal:** A robust and user-friendly web interface for comprehensive management of Projects, Documents (including versioning and content updates), and Memory Entries (including tagging and relationship management) within the MCP server, built using FastAPI and Bootstrap 5, relying on direct database interactions via helper functions.

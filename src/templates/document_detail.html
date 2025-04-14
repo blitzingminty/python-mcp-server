@@ -1,119 +1,146 @@
 {% extends "base.html" %}
 
-{% block title %}{{ data.page_title }}{% endblock %}
+{% block title %}{{ data.page_title | default('Document Detail') }}{% endblock %}
 
 {% block content %}
 
-{# Display errors passed via query parameter at the top #}
+{# Display errors passed via query parameter #}
 {% if data.error %}
-<p style="color: red; border: 1px solid red; padding: 10px; margin-bottom: 15px;">
-    <strong>Error:</strong> {{ data.error }}
-</p>
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
 {% endif %}
 
 
 {% if data.document %}
-    <h1>Document: {{ data.document.name }}</h1>
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        {# Use text-break to prevent long names overflowing #}
+        <h1 class="h2 text-break">Document: {{ data.document.name }}</h1>
+        <div class="btn-toolbar mb-2 mb-md-0">
+            {# Action Buttons using Bootstrap button group #}
+            <div class="mb-3">
+                <a href="{{ request.url_for('ui_view_project', project_id=data.document.project_id) }}" class="btn btn-sm btn-outline-secondary">&larr; Back to Project</a>
+                <div class="btn-group ms-2">
+                    <a href="{{ request.url_for('ui_edit_document', doc_id=data.document.id) }}" class="btn btn-sm btn-outline-secondary">Edit Metadata</a>
+                    {# --- ADDED: Create New Version Button --- #}
+                    <a href="{{ request.url_for('ui_new_version_form', doc_id=data.document.id) }}" class="btn btn-sm btn-outline-primary">Create New Version</a>
+                     {# --- END ADDED --- #}
+                     <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=data.document.id) }}" style="display: inline;"
+                           onsubmit="return confirm('Are you sure you want to delete document \'{{ data.document.name }}\'? This cannot be undone.');">
+                       <button type="submit" class="btn btn-sm btn-outline-danger">Delete Document</button>
+                     </form>
+                </div>
+            </div>
+                </div>
+    </div>
 
-    {# Action Buttons #}
-    <div style="margin-bottom: 15px;">
-        <a href="{{ request.url_for('ui_view_project', project_id=data.document.project_id) }}">Back to Project</a> |
-        <a href="{{ request.url_for('ui_edit_document', doc_id=data.document.id) }}">Edit Metadata</a>  |
-        <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=data.document.id) }}" style="display: inline;"
-        onsubmit="return confirm('Are you sure you want to delete document \'{{ data.document.name }}\'? This cannot be undone.');">
-    <button type="submit" style="border: none; background: none; color: blue; text-decoration: underline; cursor: pointer; padding: 0;">Delete Document</button> {# Link-like button #}
-  </form>
-  </div>
 
-    {# Basic Details #}
-    <p><strong>ID:</strong> {{ data.document.id }}</p>
-    <p><strong>Project ID:</strong> {{ data.document.project_id }}</p>
-    <p><strong>Path:</strong> {{ data.document.path }}</p>
-    <p><strong>Type:</strong> {{ data.document.type }}</p>
-    <p><strong>Current Version:</strong> {{ data.document.version }}</p>
-    <p><strong>Created:</strong> {{ data.document.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.created_at else '-' }}</p>
-    <p><strong>Updated:</strong> {{ data.document.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.updated_at else '-' }}</p>
+    <div class="row g-3">
+        {# Column for Basic Details & Tags #}
+        <div class="col-md-6">
+             <div class="card mb-3">
+                <div class="card-header">Details</div>
+                <div class="card-body">
+                     <dl class="row mb-0">
+                        <dt class="col-sm-4">ID:</dt>
+                        <dd class="col-sm-8">{{ data.document.id }}</dd>
 
-    <hr>
+                        <dt class="col-sm-4">Project ID:</dt>
+                        <dd class="col-sm-8"><a href="{{ request.url_for('ui_view_project', project_id=data.document.project_id) }}">{{ data.document.project_id }}</a></dd>
 
-    {# Document Content #}
-    <h2>Content</h2>
-    {# Display content safely. Use <pre> for plain text or consider markdown conversion if applicable #}
-    <pre style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; max-height: 400px; overflow-y: auto;">{{ data.document.content }}</pre>
+                        <dt class="col-sm-4">Path:</dt>
+                        <dd class="col-sm-8 text-break">{{ data.document.path }}</dd>
 
-    <hr>
+                        <dt class="col-sm-4">Type:</dt>
+                        <dd class="col-sm-8">{{ data.document.type }}</dd>
 
-    {# --- MODIFIED Tags Section --- #}
-    <h2>Tags</h2>
-    {% if data.document.tags %}
-        <ul style="list-style: none; padding-left: 0; margin-bottom: 10px;">
-            {# Sort tags alphabetically for consistent display #}
-            {% for tag in data.document.tags|sort(attribute='name') %}
-                <li style="display: inline-block; margin-right: 5px; margin-bottom: 5px; background-color: #e9ecef; padding: 3px 8px; border-radius: 4px; font-size: 0.9em;">
-                    {{ tag.name }}
-                    {# --- Actual Remove Tag Form --- #}
-                    <form method="post" action="{{ request.url_for('ui_remove_tag_from_document', doc_id=data.document.id) }}" style="display: inline; margin-left: 4px;">
-                        {# Pass tag name via hidden input #}
-                        <input type="hidden" name="tag_name" value="{{ tag.name }}">
-                        <button type="submit" title="Remove tag '{{ tag.name }}'" style="border: none; background: none; color: red; cursor: pointer; padding: 0; font-weight: bold;">&times;</button>
+                        <dt class="col-sm-4">Current Version:</dt>
+                        <dd class="col-sm-8">{{ data.document.version }}</dd>
+
+                        <dt class="col-sm-4">Created:</dt>
+                        <dd class="col-sm-8">{{ data.document.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.created_at else '-' }}</p>
+
+                        <dt class="col-sm-4">Updated:</dt>
+                        <dd class="col-sm-8">{{ data.document.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.document.updated_at else '-' }}</p>
+                    </dl>
+                </div>
+            </div>
+
+             <div class="card">
+                 <div class="card-header">Tags</div>
+                 <div class="card-body">
+                    {# Tags Section #}
+                    {% if data.document.tags %}
+                        <ul class="list-unstyled tag-list"> {# Use custom class + list-unstyled #}
+                            {% for tag in data.document.tags|sort(attribute='name') %}
+                                <li class="tag-item"> {# Use custom class #}
+                                    {{ tag.name }}
+                                    <form method="post" action="{{ request.url_for('ui_remove_tag_from_document', doc_id=data.document.id) }}">
+                                        <input type="hidden" name="tag_name" value="{{ tag.name }}">
+                                        <button type="submit" title="Remove tag '{{ tag.name }}'">&times;</button> {# Custom style applied via CSS #}
+                                    </form>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">No tags associated with this document.</p>
+                    {% endif %}
+                    {# Add Tag Form #}
+                    <form method="post" action="{{ request.url_for('ui_add_tag_to_document', doc_id=data.document.id) }}" class="add-tag-form"> {# Use custom class for flex alignment #}
+                        <label for="tag_name" class="visually-hidden">Add Tag:</label> {# Hide label visually but keep for accessibility #}
+                        <input type="text" id="tag_name" name="tag_name" placeholder="Add new tag" required class="form-control form-control-sm">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Add</button>
                     </form>
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p>No tags associated with this document.</p>
-    {% endif %}
+                 </div>
+            </div>
+        </div>{# End first column #}
 
-    {# --- Actual Add Tag Form --- #}
-    <form method="post" action="{{ request.url_for('ui_add_tag_to_document', doc_id=data.document.id) }}" style="margin-top: 10px;">
-        <label for="tag_name">Add Tag:</label>
-        <input type="text" id="tag_name" name="tag_name" placeholder="New tag name" required style="margin-left: 5px; padding: 4px;">
-        <button type="submit" style="padding: 4px 8px;">Add Tag</button>
-    </form>
-    {# --- END MODIFIED Tags Section --- #}
+        {# Column for Content & Versions #}
+        <div class="col-md-6">
+             {# Document Content #}
+             <div class="card mb-3">
+                <div class="card-header">Content (Version: {{ data.document.version }})</div>
+                <div class="card-body">
+                    <pre>{{ data.document.content }}</pre> {# Use <pre> with custom styling from base #}
+                </div>
+             </div>
 
+            {# Versions Section #}
+             <div class="card">
+                 <div class="card-header">Version History</div>
+                 <div class="card-body p-0"> {# Remove padding for list group #}
+                    {% if data.document.versions %}
+                        <ul class="list-group list-group-flush">
+                             {% for version in data.document.versions %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                   <span>
+                                        <a href="{{ request.url_for('ui_view_version', version_id=version.id) }}">
+                                            Version {{ version.version }}
+                                        </a>
+                                        <small class="text-muted ms-2">(ID: {{ version.id }})</small>
+                                        {% if version.version == data.document.version %}
+                                            <span class="badge bg-success ms-2">Current</span>
+                                        {% endif %}
+                                   </span>
+                                    <small class="text-muted">{{ version.created_at.strftime('%Y-%m-%d %H:%M') if version.created_at else '-' }}</small>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="card-text p-3 text-muted">No historical versions found for this document.</p>
+                    {% endif %}
+                 </div>
+            </div>
+        </div> {# End second column #}
+    </div> {# End row #}
 
-    <hr>
-
-    {# Versions Section #}
-    <h2>Versions</h2>
-    {% if data.document.versions %}
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-            <thead>
-                <tr>
-                    <th>Version ID</th>
-                    <th>Version String</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {# Versions are already sorted by ID descending in web_routes.py #}
-                {% for version in data.document.versions %}
-                <tr>
-                    <td>{{ version.id }}</td>
-                    <td>
-                        {{ version.version }} {# Use version.version now #}
-                        {% if version.version == data.document.version %}<strong style="color: green;"> (Current)</strong>{% endif %}
-                    </td>
-                    <td>{{ version.created_at.strftime('%Y-%m-%d %H:%M:%S') if version.created_at else '-' }}</td>
-                    <td>
-                        {# Placeholder link for viewing specific version content #}
-                        <a href="#">View Content</a> {# Keep placeholder for Step 7 #}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No historical versions found for this document.</p>
-    {% endif %}
 
 {% else %}
-    {# This part might not be reached if using HTTPException for not found #}
-    <h1>Document Not Found</h1>
-    <p>The requested document could not be found.</p>
-    <p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+    <div class="alert alert-warning" role="alert">
+      Document not found or could not be loaded.
+    </div>
+     <a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-secondary">Back to Projects List</a>
 {% endif %}
 
 {% endblock %}

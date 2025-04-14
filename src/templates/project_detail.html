@@ -1,113 +1,182 @@
 {% extends "base.html" %}
 
-{% block title %}{{ data.page_title }}{% endblock %}
+{% block title %}{{ data.page_title | default('Project Details') }}{% endblock %}
 
 {% block content %}
 
+{# Display errors using Bootstrap alerts #}
 {% if data.error %}
-<h1>Error</h1>
-<p style="color: red;">{{ data.error }}</p>
-<p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
 
-{% elif data.project %}
-<h1>Project Details: {{ data.project.name }}</h1>
-<p><strong>ID:</strong> {{ data.project.id }}</p>
-<p><strong>Description:</strong> {{ data.project.description if data.project.description else 'N/A' }}</p>
-<p><strong>Path:</strong> {{ data.project.path }}</p>
-<p><strong>Active:</strong>
-    {% if data.project.is_active %}
-    <strong style="color: green;">Yes (Currently Active)</strong>
-    {% else %}
-    No
-    {% endif %}
-</p>
-<p><strong>Created:</strong> {{ data.project.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.created_at else
-    '-' }}</p>
-<p><strong>Updated:</strong> {{ data.project.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.updated_at else
-    '-' }}</p>
 
-<hr>
+{% if data.project %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Project: {{ data.project.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+             <a href="{{ request.url_for('ui_edit_project', project_id=data.project.id) }}" class="btn btn-sm btn-outline-secondary">Edit Project</a>
+             {# Activate Form/Button #}
+             {% if not data.project.is_active %}
+             <form method="post" action="{{ request.url_for('ui_activate_project', project_id=data.project.id) }}" class="ms-1" style="display: inline;">
+               <button type="submit" class="btn btn-sm btn-outline-success">Set Active</button>
+             </form>
+             {% endif %}
+             {# Delete Form/Button #}
+             <form method="post" action="{{ request.url_for('ui_delete_project', project_id=data.project.id) }}" class="ms-1" style="display: inline;"
+                   onsubmit="return confirm('Are you sure you want to delete project \'{{ data.project.name }}\'? This cannot be undone.');">
+                 <button type="submit" class="btn btn-sm btn-outline-danger">Delete Project</button>
+             </form>
+        </div>
+         <a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-sm btn-outline-secondary">Back to List</a>
+    </div>
+</div>
 
-<hr>
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Details</div>
+            <div class="card-body">
+                 <dl class="row mb-0">
+                    <dt class="col-sm-3">ID:</dt>
+                    <dd class="col-sm-9">{{ data.project.id }}</dd>
 
-<h2>Associated Documents</h2>
+                    <dt class="col-sm-3">Path:</dt>
+                    <dd class="col-sm-9">{{ data.project.path }}</dd>
+
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        {% if data.project.is_active %}
+                            <span class="badge bg-success">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Inactive</span>
+                        {% endif %}
+                    </dd>
+
+                    <dt class="col-sm-3">Description:</dt>
+                    <dd class="col-sm-9">{{ data.project.description if data.project.description else '<span class="text-muted">N/A</span>' | safe }}</dd>
+
+                    <dt class="col-sm-3">Created:</dt>
+                    <dd class="col-sm-9">{{ data.project.created_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.created_at else '-' }}</dd>
+
+                    <dt class="col-sm-3">Updated:</dt>
+                    <dd class="col-sm-9">{{ data.project.updated_at.strftime('%Y-%m-%d %H:%M:%S') if data.project.updated_at else '-' }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    {# Placeholder Column - can add other info later #}
+    <div class="col-md-6">
+         {# Example: <div class="card"><div class="card-body">...</div></div> #}
+    </div>
+
+</div>
+
+
+{# Associated Documents Section #}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mt-4 mb-3 border-bottom">
+    <h2 class="h3">Associated Documents</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ request.url_for('ui_new_document', project_id=data.project.id) }}" class="btn btn-sm btn-outline-primary">Add New Document</a>
+    </div>
+</div>
 {% if data.project.documents %}
-<table border="1" style="border-collapse: collapse; width: 100%; margin-top: 10px;">
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Version</th>
-            <th>Updated</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for doc in data.project.documents %}
-        <tr>
-            {# Link the ID to the document detail page #}
-            <td><a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">{{ doc.id }}</a></td>
-            <td>{{ doc.name }}</td>
-            <td>{{ doc.type }}</td>
-            <td>{{ doc.version }}</td>
-            <td>{{ doc.updated_at.strftime('%Y-%m-%d %H:%M') if doc.updated_at else '-' }}</td>
-            <td>
-                {# Update the View link #}
-                <a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">View</a> |
-                <a href="{{ request.url_for('ui_edit_document', doc_id=doc.id) }}">Edit</a> |
-                <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=doc.id) }}"
-                    style="display: inline;"
-                    onsubmit="return confirm('Are you sure you want to delete document \'{{ doc.name }}\'? This cannot be undone.');">
-                    <button type="submit"
-                        style="border: none; background: none; color: blue; text-decoration: underline; cursor: pointer; padding: 0;">Delete</button>
-                    {# Link-like button #}
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-responsive">
+    <table class="table table-striped table-hover table-sm">
+        <thead class="table-light">
+            <tr>
+                <th scope="col">ID</th>
+                <th scope="col">Name</th>
+                <th scope="col">Type</th>
+                <th scope="col">Version</th>
+                <th scope="col">Updated</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for doc in data.project.documents %}
+            <tr>
+                <td><a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}">{{ doc.id }}</a></td>
+                <td>{{ doc.name }}</td>
+                <td>{{ doc.type }}</td>
+                <td>{{ doc.version }}</td>
+                <td>{{ doc.updated_at.strftime('%Y-%m-%d %H:%M') if doc.updated_at else '-' }}</td>
+                <td>
+                    <a href="{{ request.url_for('ui_view_document', doc_id=doc.id) }}" class="btn btn-sm btn-outline-secondary me-1 py-0 px-1">View</a>
+                    <a href="{{ request.url_for('ui_edit_document', doc_id=doc.id) }}" class="btn btn-sm btn-outline-secondary me-1 py-0 px-1">Edit</a>
+                    <form method="post" action="{{ request.url_for('ui_delete_document', doc_id=doc.id) }}" style="display: inline;"
+                          onsubmit="return confirm('Are you sure you want to delete document \'{{ doc.name }}\'? This cannot be undone.');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<p>No documents found for this project.</p>
+<div class="alert alert-secondary" role="alert">
+    No documents found for this project.
+</div>
 {% endif %}
-<p style="margin-top: 10px;">
-    <a href="{{ request.url_for('ui_new_document', project_id=data.project.id) }}">Add New Document</a>
-</p>
 
 
-
-
-
-
-<h2>Associated Memory Entries</h2>
-{# ... (keep existing memory entry list code) ... #}
-<p><a href="#">Add Memory Entry</a></p>
-
-<hr>
-
-<p>
-    <a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a> |
-    <a href="{{ request.url_for('ui_edit_project', project_id=data.project.id) }}">Edit Project</a> |
-<form method="post" action="{{ request.url_for('ui_delete_project', project_id=data.project.id) }}"
-    style="display: inline; margin-left: 5px;"
-    onsubmit="return confirm('Are you sure you want to delete project \'{{ data.project.name }}\'? This cannot be undone.');">
-    <button type="submit">Delete Project</button>
-</form>
-
-{# --- Add Activate Form/Status (conditional) --- #}
-{% if not data.project.is_active %}
-| <form method="post" action="{{ request.url_for('ui_activate_project', project_id=data.project.id) }}"
-    style="display: inline; margin-left: 5px;">
-    <button type="submit">Set as Active Project</button> {# Simple button #}
-</form>
-{% endif %}
-{# --- End Activate Form/Status --- #}
-</p>
+{# Associated Memory Entries Section #}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mt-4 mb-3 border-bottom">
+    <h2 class="h3">Associated Memory Entries</h2>
+     <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ request.url_for('ui_new_memory_entry', project_id=data.project.id) }}" class="btn btn-sm btn-outline-primary">Add New Memory Entry</a>
+    </div>
+</div>
+{% if data.project.memory_entries %}
+<div class="table-responsive">
+    <table class="table table-striped table-hover table-sm">
+        <thead class="table-light">
+            <tr>
+                <th scope="col">ID</th>
+                <th scope="col">Title</th>
+                <th scope="col">Type</th>
+                <th scope="col">Updated</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Entries should be sorted by updated_at desc in the route handler #}
+            {% for entry in data.project.memory_entries %}
+            <tr>
+                <td><a href="{{ request.url_for('ui_view_memory_entry', entry_id=entry.id) }}">{{ entry.id }}</a></td>
+                <td>{{ entry.title }}</td>
+                <td>{{ entry.type }}</td>
+                <td>{{ entry.updated_at.strftime('%Y-%m-%d %H:%M') if entry.updated_at else '-' }}</td>
+                <td>
+                    <a href="{{ request.url_for('ui_view_memory_entry', entry_id=entry.id) }}" class="btn btn-sm btn-outline-secondary me-1 py-0 px-1">View</a>
+                    <a href="{{ request.url_for('ui_edit_memory_entry', entry_id=entry.id) }}" class="btn btn-sm btn-outline-secondary me-1 py-0 px-1">Edit</a>
+                    <form method="post" action="{{ request.url_for('ui_delete_memory_entry', entry_id=entry.id) }}" style="display: inline;"
+                          onsubmit="return confirm('Are you sure you want to delete memory entry \'{{ entry.title }}\'? This cannot be undone.');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<h1>Project Not Found</h1>
-<p>The requested project could not be found.</p>
-<p><a href="{{ request.url_for('ui_list_projects') }}">Back to Projects List</a></p>
+<div class="alert alert-secondary" role="alert">
+    No memory entries found for this project.
+</div>
 {% endif %}
+
+
+{% else %} {# Corresponds to if data.project #}
+    <div class="alert alert-warning" role="alert">
+      Project not found or could not be loaded.
+    </div>
+    <a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-secondary">Back to Projects List</a>
+{% endif %} {# End if data.project #}
 
 {% endblock %}

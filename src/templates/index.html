@@ -1,16 +1,52 @@
 {% extends "base.html" %}
 
-{% block title %}{{ data.page_title }}{% endblock %}
+{% block title %}{{ data.page_title | default('Dashboard') }}{% endblock %}
 
 {% block content %}
-<h1>{{ data.welcome_message }}</h1>
-<p>This is the main dashboard. Use the navigation above to manage server entities.</p>
+<div class="pb-2 mb-4 border-bottom">
+    <h1>{{ data.welcome_message | default('Dashboard') }}</h1>
+</div>
 
-<h2>Summary</h2>
-<ul>
-    <li>Projects: [Count]</li>
-    <li>Documents: [Count]</li>
-    <li>Memory Entries: [Count]</li>
-</ul>
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                Overview
+            </div>
+            <div class="card-body">
+                <p>This is the main dashboard. Use the navigation above to manage server entities.</p>
+                {# Add dynamic counts here later if needed #}
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Projects
+                        {# Use the count variable passed from the route #}
+                        <span class="badge bg-primary rounded-pill">{{ data.project_count }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Documents
+                        {# Use the count variable passed from the route #}
+                        <span class="badge bg-secondary rounded-pill">{{ data.document_count }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Memory Entries
+                        {# Use the count variable passed from the route #}
+                        <span class="badge bg-secondary rounded-pill">{{ data.memory_entry_count }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        {# Placeholder for other cards or info panels #}
+        <div class="card">
+            <div class="card-header">Quick Actions</div>
+            <div class="list-group list-group-flush">
+                <a href="{{ request.url_for('ui_new_project') }}" class="list-group-item list-group-item-action">Add New
+                    Project</a>
+                {# Add other quick actions here #}
+            </div>
+        </div>
+    </div>
+</div>
 
 {% endblock %}

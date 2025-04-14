@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}{{ data.page_title | default('Create New Document Version') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ data.page_title | default('Create New Document Version') }}</h1>
+</div>
+
+{# Display errors using Bootstrap alerts #}
+{% if data.error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <strong>Error:</strong> {{ data.error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+{% if data.document %}
+  {# Display context about the document being versioned #}
+  <div class="alert alert-info small" role="alert">
+    You are creating a new version for Document ID: {{ data.document.id }} (Name: {{ data.document.name }}). <br>
+    The current version is: <strong>{{ data.document.version }}</strong>. <br>
+    Submitting this form will update the document's main content and version string, and create a new historical record.
+  </div>
+
+  <form method="post" action="{{ data.form_action }}">
+
+    {# New Version String #}
+    <div class="mb-3">
+      <label for="version_string" class="form-label">New Version String</label>
+      <input type="text" class="form-control" id="version_string" name="version_string"
+             placeholder="e.g., 1.1.0, 2.0-beta, main-update" required>
+      <div id="versionHelp" class="form-text">Enter a unique version identifier for this new content.</div>
+    </div>
+
+    {# Content #}
+    <div class="mb-3">
+      <label for="content" class="form-label">New Content</label>
+      {# Pre-fill with current content for editing #}
+      <textarea class="form-control" id="content" name="content" rows="15" required>{{ data.document.content }}</textarea>
+    </div>
+
+    {# Action Buttons #}
+    <div class="mt-4">
+      <button type="submit" class="btn btn-primary">Create New Version</button>
+      <a href="{{ data.cancel_url }}" class="btn btn-secondary">Cancel</a>
+    </div>
+
+  </form>
+
+{% else %}
+  {# Should ideally not be reached if route fetches document first #}
+  <div class="alert alert-warning" role="alert">
+      Document context not found. Cannot create new version.
+    </div>
+     <a href="{{ request.url_for('ui_list_projects') }}" class="btn btn-secondary">Back to Projects List</a>
+{% endif %}
+
+{% endblock %}
