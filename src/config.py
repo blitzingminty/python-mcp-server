@@ -21,12 +21,12 @@ class Settings(BaseSettings):
 
     # Database configuration
     # Defaulting to an SQLite DB in the project root
-    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/mcp_server.db"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/mcp_server.db")
     # Example for PostgreSQL: "postgresql+asyncpg://user:password@host:port/dbname"
 
     # Server configuration
     SERVER_HOST: str = "127.0.0.1" # Host for Uvicorn/FastAPI
-    SERVER_PORT: int = 8000       # Port for Uvicorn/FastAPI (matches default)
+    SERVER_PORT: int = int(os.getenv("MCP_SESSION_SERVER_INTERNAL_PORT", 8000))       # Port for Uvicorn/FastAPI (matches default)
 
     # MCP configuration (add specifics as needed)
     MCP_SERVER_NAME: str = "python-mcp-server"
@@ -60,4 +60,3 @@ if __name__ == "__main__":
     print(f"Environment: {settings.ENVIRONMENT}")
     print(f"Log Level: {settings.LOG_LEVEL}")
     print(f"Base Directory: {settings.BASE_DIR}")
-    
