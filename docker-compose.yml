@@ -5,9 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: python-mcp-server
+    container_name: ${MCP_SESSION_SERVER_CONTAINER_NAME}
     ports:
-      - "${PYTHON_MCP_SERVER_PORT:-8000}:8000"
+      - "${MCP_SESSION_SERVER_INTERNAL_PORT:-8000}:${MCP_SESSION_SERVER_INTERNAL_PORT}"
     volumes:
       # Mount a volume for potential database persistence
       - python-mcp-db:/data/db
@@ -16,9 +16,9 @@ services:
     environment:
       # Configure server host and port inside the container
       - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8000
+      - SERVER_PORT=${MCP_SESSION_SERVER_INTERNAL_PORT}
       # Set transport mode
-      - MCP_TRANSPORT=http
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-http}
       # Configure database path to use the volume
       - DATABASE_URL=sqlite+aiosqlite:///data/db/mcp_server.db
       # Indicate the environment
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # Use the correct health check endpoint from src/main.py
-      test: ["CMD", "curl", "-f", "http://localhost:8000/_fastapi_health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${MCP_SESSION_SERVER_INTERNAL_PORT}/_fastapi_health"]
       interval: 30s
       timeout: 10s
       retries: 3
