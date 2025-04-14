@@ -21,7 +21,7 @@ from pathlib import Path
 # --- Project Imports ---
 from src.config import settings
 from src.mcp_server_instance import mcp_instance # Keep your MCP instance
-from .web_routes import router as web_ui_router
+from src.web_routes import router as web_ui_router
 
 # --- Logging Setup ---
 # Keep your existing logging setup
@@ -139,4 +139,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Unhandled exception at top level: {e}", exc_info=True)
         sys.exit(1)
-
