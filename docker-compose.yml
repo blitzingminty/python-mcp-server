@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  python-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: python-mcp-server
+    ports:
+      - "${PYTHON_MCP_SERVER_PORT:-8000}:8000"
+    volumes:
+      # Mount a volume for potential database persistence
+      - python-mcp-db:/data/db
+      # You might need other volumes depending on your app's needs
+      # - ./some_local_dir:/app/some_app_dir
+    environment:
+      # Configure server host and port inside the container
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      # Set transport mode
+      - MCP_TRANSPORT=http
+      # Configure database path to use the volume
+      - DATABASE_URL=sqlite+aiosqlite:///data/db/mcp_server.db
+      # Indicate the environment
+      - ENVIRONMENT=docker
+      # Add any other environment variables your application needs
+      # - LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      # Use the correct health check endpoint from src/main.py
+      test: ["CMD", "curl", "-f", "http://localhost:8000/_fastapi_health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  python-mcp-db:
+    driver: local
+  # Define other volumes if needed
+
+networks:
+  default:
+    external: true
+    name: crawl4ai-network

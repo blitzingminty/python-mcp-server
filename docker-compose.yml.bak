@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  mcp-session-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-session-server
+    ports:
+      - "${MCP_SESSION_SERVER_PORT:-8088}:${MCP_SESSION_SERVER_INTERNAL_PORT:-8088}"
+    volumes:
+      - clinerules-db:/data/db
+      - clinerules-import-export:/data/import_export
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/data/db/clinerules.sqlite
+      - IMPORT_EXPORT_PATH=/data/import_export
+      - LOG_LEVEL=info
+      - MCP_SESSION_SERVER_INTERNAL_PORT=${MCP_SESSION_SERVER_INTERNAL_PORT:-8088}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  clinerules-db:
+    driver: local
+  clinerules-import-export:
+    driver: local
+networks:
+  default:
+    external: true
+    name: crawl4ai-network
