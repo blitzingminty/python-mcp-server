@@ -2,7 +2,6 @@
 # Defines the FastMCP server instance and its handlers.
 
 
-
 import logging,time
 from typing import Any, Dict, Optional, List, AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,12 +11,13 @@ import datetime
 # --- SQLAlchemy Imports ---
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError # Added IntegrityError
 from sqlalchemy.orm import selectinload
 
 from .database import AsyncSessionFactory, Base, engine, get_db_session # Ensure get_db_session is imported if needed elsewhere, though not directly here for the tool
 
-from .models import Project, Document, DocumentVersion
+# Import Tag model
+from .models import Project, Document, DocumentVersion, MemoryEntry, Tag, MemoryEntryRelation # Add MemoryEntryRelation
 
 # --- SDK Imports ---
 try:
@@ -31,7 +31,7 @@ except ImportError as e:
 
 # --- Project Imports ---
 from .config import settings
-from .models import Project, Document, DocumentVersion, MemoryEntry, Tag, MemoryEntryRelation # Add MemoryEntryRelation
+# Removed duplicate model import here
 
 logger = logging.getLogger(__name__)
 
@@ -81,82 +81,6 @@ logger.info(
     f"FastMCP instance created with lifespan: {settings.MCP_SERVER_NAME} v{settings.VERSION}")
 
 
-
-
-
-# --- NEW HELPER FUNCTION ---
-async def _delete_document_in_db(session: AsyncSession, document_id: int) -> bool:
-    """
-    Core logic to delete a document from the database.
-    Assumes cascade delete handles associated versions/tags appropriately.
-    Returns True if deletion was successful or document didn't exist,
-    False if a database error occurred during delete.
-    """
-    logger.debug(f"Helper: Deleting document ID {document_id} from DB.")
-    doc = await session.get(Document, document_id)
-
-    if doc is None:
-        logger.warning(f"Helper: Document ID {document_id} not found for deletion.")
-        return True # Treat as success from caller's perspective (it's gone)
-
-    try:
-        await session.delete(doc)
-        await session.flush() # Ensure delete operation is executed within the transaction
-        logger.info(f"Helper: Document ID {document_id} ('{doc.name}') deleted.")
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"Helper: Database error deleting document {document_id}: {e}", exc_info=True)
-        return False
-
-
-
-
-
-
-# --- NEW HELPER FUNCTION ---
-async def _update_document_in_db(
-    session: AsyncSession,
-    document_id: int,
-    name: Optional[str] = None,
-    path: Optional[str] = None,
-    type: Optional[str] = None,
-    # Removed content and version - handle content updates separately maybe
-) -> Document | None: # Return updated Document or None if not found
-    """
-    Core logic to update a document's metadata in the database.
-    Does NOT handle content/version updates currently.
-    """
-    logger.debug(f"Helper: Updating metadata for document ID {document_id} in DB.")
-    # Fetch the document first
-    document = await session.get(Document, document_id)
-
-    if document is None:
-        logger.warning(f"Helper: Document ID {document_id} not found for update.")
-        return None # Indicate not found
-
-    update_data = {"name": name, "path": path, "type": type}
-    updated = False
-    for key, value in update_data.items():
-        # Only update if the value is provided (not None) AND different from current value
-        if value is not None and getattr(document, key) != value:
-            setattr(document, key, value)
-            updated = True
-
-    if updated:
-        logger.debug(f"Helper: Applying metadata updates to document {document_id}.")
-        # Ensure changes are flushed to DB within the caller's transaction
-        # updated_at should be handled by the model's onupdate
-        await session.flush()
-        await session.refresh(document) # Refresh to get updated timestamp etc.
-    else:
-        logger.debug(f"Helper: No metadata changes detected for document {document_id}.")
-
-    return document # Return the document object (updated or unchanged)
-
-
-
-
-
 # --- Helper to get session from context ---
 async def get_session(ctx: Context) -> AsyncSession:
     """Gets an async session from the lifespan context."""
@@ -175,11 +99,37 @@ async def get_session(ctx: Context) -> AsyncSession:
             "Server configuration error: Context structure invalid.")
 
 
+# --- Existing DB Helper Functions ---
+
+# --- Helper to get or create a tag (from previous MCP tool implementation) ---
+async def _get_or_create_tag(session: AsyncSession, tag_name: str) -> Tag:
+    """Helper function to get a Tag or create it if it doesn't exist."""
+    stmt = select(Tag).where(Tag.name == tag_name)
+    result = await session.execute(stmt)
+    tag = result.scalar_one_or_none()
+    if tag is None:
+        logger.info(f"Tag '{tag_name}' not found, creating...")
+        tag = Tag(name=tag_name)
+        session.add(tag)
+        # Flush to ensure the tag is persisted before associating
+        # Needed if using the tag object immediately in the same transaction
+        try:
+            await session.flush()
+            await session.refresh(tag) # Refresh after potential creation
+            logger.info(f"Tag '{tag_name}' created or retrieved.")
+        except IntegrityError: # Handle potential race condition if tag was created concurrently
+            logger.warning(f"Tag '{tag_name}' likely created concurrently, retrieving existing.")
+            await session.rollback() # Rollback the failed add
+            # Fetch the now existing tag
+            stmt = select(Tag).where(Tag.name == tag_name)
+            result = await session.execute(stmt)
+            tag = result.scalar_one() # Should exist now
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting/creating tag '{tag_name}': {e}", exc_info=True)
+            raise # Re-raise other SQLAlchemy errors
+    return tag
 
 
-
-
-# --- NEW HELPER FUNCTION ---
 async def _create_project_in_db(
     session: AsyncSession,
     name: str,
@@ -202,10 +152,6 @@ async def _create_project_in_db(
     await session.refresh(new_project) # Refresh to get defaults like created_at
     logger.debug(f"Helper: Project created with ID {new_project.id}")
     return new_project
-
-
-
-
 
 async def _update_project_in_db(
     session: AsyncSession,
@@ -244,10 +190,6 @@ async def _update_project_in_db(
 
     return project # Return the project object (updated or unchanged)
 
-
-
-
-# --- NEW HELPER FUNCTION ---
 async def _delete_project_in_db(session: AsyncSession, project_id: int) -> bool:
     """
     Core logic to delete a project from the database.
@@ -273,12 +215,49 @@ async def _delete_project_in_db(session: AsyncSession, project_id: int) -> bool:
         # Let's return False, caller handles redirect.
         return False
 
+async def _set_active_project_in_db(session: AsyncSession, project_id: int) -> Project | None:
+    """
+    Core logic to set a project as active, deactivating others.
+    Returns the activated project object if successful, None if the project wasn't found.
+    Raises SQLAlchemyError on database issues during update.
+    """
+    logger.debug(f"Helper: Setting project ID {project_id} as active in DB.")
+    # Get the project to activate
+    project_to_activate = await session.get(Project, project_id)
 
+    if project_to_activate is None:
+        logger.warning(f"Helper: Project ID {project_id} not found to activate.")
+        return None # Indicate not found
 
+    # Find and deactivate currently active projects (if any)
+    stmt = select(Project).where(Project.is_active == True, Project.id != project_id)
+    result = await session.execute(stmt)
+    currently_active_projects = result.scalars().all()
 
+    updated = False
+    for proj in currently_active_projects:
+        logger.debug(f"Helper: Deactivating currently active project ID: {proj.id}")
+        proj.is_active = False
+        updated = True
 
+    # Activate the target project if it's not already active
+    if not project_to_activate.is_active:
+        logger.debug(f"Helper: Activating project ID: {project_id}")
+        project_to_activate.is_active = True
+        updated = True
+    else:
+         logger.debug(f"Helper: Project ID: {project_id} was already active.")
 
-# --- NEW HELPER FUNCTION ---
+    if updated:
+        # Ensure changes are flushed within the caller's transaction
+        await session.flush()
+        # Refresh the specifically activated project if needed (e.g., to get updated_at)
+        await session.refresh(project_to_activate)
+    else:
+        logger.debug(f"Helper: No change in active state for project {project_id}.")
+
+    return project_to_activate # Return the target project object
+
 async def _add_document_in_db(
     session: AsyncSession,
     project_id: int,
@@ -330,60 +309,153 @@ async def _add_document_in_db(
     # setattr(new_document, 'initial_version_id', new_version_entry.id) # Example
     return new_document
 
-
-
-
-
-
-
-# --- NEW HELPER FUNCTION ---
-async def _set_active_project_in_db(session: AsyncSession, project_id: int) -> Project | None:
+async def _update_document_in_db(
+    session: AsyncSession,
+    document_id: int,
+    name: Optional[str] = None,
+    path: Optional[str] = None,
+    type: Optional[str] = None,
+    # Removed content and version - handle content updates separately maybe
+) -> Document | None: # Return updated Document or None if not found
     """
-    Core logic to set a project as active, deactivating others.
-    Returns the activated project object if successful, None if the project wasn't found.
-    Raises SQLAlchemyError on database issues during update.
+    Core logic to update a document's metadata in the database.
+    Does NOT handle content/version updates currently.
     """
-    logger.debug(f"Helper: Setting project ID {project_id} as active in DB.")
-    # Get the project to activate
-    project_to_activate = await session.get(Project, project_id)
+    logger.debug(f"Helper: Updating metadata for document ID {document_id} in DB.")
+    # Fetch the document first
+    document = await session.get(Document, document_id)
 
-    if project_to_activate is None:
-        logger.warning(f"Helper: Project ID {project_id} not found to activate.")
+    if document is None:
+        logger.warning(f"Helper: Document ID {document_id} not found for update.")
         return None # Indicate not found
 
-    # Find and deactivate currently active projects (if any)
-    stmt = select(Project).where(Project.is_active == True, Project.id != project_id)
-    result = await session.execute(stmt)
-    currently_active_projects = result.scalars().all()
-
+    update_data = {"name": name, "path": path, "type": type}
     updated = False
-    for proj in currently_active_projects:
-        logger.debug(f"Helper: Deactivating currently active project ID: {proj.id}")
-        proj.is_active = False
-        updated = True
-
-    # Activate the target project if it's not already active
-    if not project_to_activate.is_active:
-        logger.debug(f"Helper: Activating project ID: {project_id}")
-        project_to_activate.is_active = True
-        updated = True
-    else:
-         logger.debug(f"Helper: Project ID: {project_id} was already active.")
+    for key, value in update_data.items():
+        # Only update if the value is provided (not None) AND different from current value
+        if value is not None and getattr(document, key) != value:
+            setattr(document, key, value)
+            updated = True
 
     if updated:
-        # Ensure changes are flushed within the caller's transaction
+        logger.debug(f"Helper: Applying metadata updates to document {document_id}.")
+        # Ensure changes are flushed to DB within the caller's transaction
+        # updated_at should be handled by the model's onupdate
         await session.flush()
-        # Refresh the specifically activated project if needed (e.g., to get updated_at)
-        await session.refresh(project_to_activate)
+        await session.refresh(document) # Refresh to get updated timestamp etc.
     else:
-        logger.debug(f"Helper: No change in active state for project {project_id}.")
+        logger.debug(f"Helper: No metadata changes detected for document {document_id}.")
 
-    return project_to_activate # Return the target project object
+    return document # Return the document object (updated or unchanged)
+
+async def _delete_document_in_db(session: AsyncSession, document_id: int) -> bool:
+    """
+    Core logic to delete a document from the database.
+    Assumes cascade delete handles associated versions/tags appropriately.
+    Returns True if deletion was successful or document didn't exist,
+    False if a database error occurred during delete.
+    """
+    logger.debug(f"Helper: Deleting document ID {document_id} from DB.")
+    # Load document with tags to allow cascade to work correctly before delete
+    doc = await session.get(Document, document_id, options=[selectinload(Document.tags), selectinload(Document.versions)])
+
+    if doc is None:
+        logger.warning(f"Helper: Document ID {document_id} not found for deletion.")
+        return True # Treat as success from caller's perspective (it's gone)
+
+    try:
+        await session.delete(doc)
+        await session.flush() # Ensure delete operation is executed within the transaction
+        logger.info(f"Helper: Document ID {document_id} ('{doc.name}') deleted.")
+        return True
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error deleting document {document_id}: {e}", exc_info=True)
+        return False
 
 
+# --- NEW HELPER FUNCTION: Add Tag to Document ---
+async def _add_tag_to_document_db(session: AsyncSession, document_id: int, tag_name: str) -> bool:
+    """
+    Core logic to add a tag to a document in the database.
+    Returns True on success or if the tag already exists, False on document not found or DB error.
+    """
+    logger.debug(f"Helper: Adding tag '{tag_name}' to document ID {document_id} in DB.")
+    try:
+        # Fetch the document, eagerly loading tags to check for existence
+        stmt = select(Document).options(selectinload(Document.tags)).where(Document.id == document_id)
+        result = await session.execute(stmt)
+        document = result.scalar_one_or_none()
+
+        if document is None:
+            logger.warning(f"Helper: Document {document_id} not found for adding tag '{tag_name}'.")
+            return False # Indicate document not found
+
+        # Use helper to get or create the tag
+        tag = await _get_or_create_tag(session, tag_name)
+
+        # Check if the tag is already associated
+        if tag in document.tags:
+            logger.info(f"Helper: Tag '{tag_name}' already exists on document {document_id}.")
+            return True # Indicate success (already present)
+        else:
+            # Add the tag to the document's tag collection
+            document.tags.add(tag)
+            # Flush to ensure the association is persisted within the transaction
+            await session.flush()
+            logger.info(f"Helper: Tag '{tag_name}' added to document {document_id}.")
+            return True # Indicate success
+
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error adding tag '{tag_name}' to document {document_id}: {e}", exc_info=True)
+        return False # Indicate database error
+    except Exception as e:
+        # Catch potential non-SQLAlchemy errors from _get_or_create_tag or elsewhere
+        logger.error(f"Helper: Unexpected error adding tag '{tag_name}' to document {document_id}: {e}", exc_info=True)
+        return False # Indicate other error
 
 
+# --- NEW HELPER FUNCTION: Remove Tag from Document ---
+async def _remove_tag_from_document_db(session: AsyncSession, document_id: int, tag_name: str) -> bool:
+    """
+    Core logic to remove a tag from a document in the database.
+    Returns True on success or if tag/document wasn't found, False on DB error.
+    """
+    logger.debug(f"Helper: Removing tag '{tag_name}' from document ID {document_id} in DB.")
+    try:
+        # Fetch the document, eagerly loading tags to find the one to remove
+        stmt = select(Document).options(selectinload(Document.tags)).where(Document.id == document_id)
+        result = await session.execute(stmt)
+        document = result.scalar_one_or_none()
 
+        if document is None:
+            logger.warning(f"Helper: Document {document_id} not found for removing tag '{tag_name}'.")
+            return True # Indicate success (document is gone, so tag is effectively removed)
+
+        # Find the tag object within the document's current tags
+        tag_to_remove = None
+        for tag in document.tags:
+            if tag.name == tag_name:
+                tag_to_remove = tag
+                break
+
+        if tag_to_remove:
+            # Remove the tag from the document's tag collection
+            document.tags.remove(tag_to_remove)
+            # Flush to ensure the association is removed within the transaction
+            await session.flush()
+            logger.info(f"Helper: Tag '{tag_name}' removed from document {document_id}.")
+            # Optionally check here if the Tag object itself should be deleted if orphaned
+            return True # Indicate success
+        else:
+            logger.info(f"Helper: Tag '{tag_name}' was not found on document {document_id}.")
+            return True # Indicate success (tag wasn't there anyway)
+
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error removing tag '{tag_name}' from document {document_id}: {e}", exc_info=True)
+        return False # Indicate database error
+    except Exception as e:
+        logger.error(f"Helper: Unexpected error removing tag '{tag_name}' from document {document_id}: {e}", exc_info=True)
+        return False # Indicate other error
 
 # --- Define MCP Tools using Decorators ---
 
@@ -469,9 +541,6 @@ async def create_project(
         return {"error": f"Unexpected server error: {e}"}
 
 
-
-# --- Placeholder Tool/Resource Handlers from before (can be filled in later) ---
-
 @mcp_instance.tool()
 async def get_project(project_id: int, ctx: Context) -> Dict[str, Any]:
     """Gets details for a specific project by its ID."""
@@ -544,13 +613,13 @@ async def update_project(
         return {
             "message": "Project updated successfully",
             "project": {
-                "id": updated_project.id,
+                 "id": updated_project.id,
                 "name": updated_project.name,
                 "description": updated_project.description,
                 "path": updated_project.path,
                 "is_active": updated_project.is_active,
                 "created_at": updated_project.created_at.isoformat() if updated_project.created_at else None,
-                "updated_at": updated_project.updated_at.isoformat() if updated_project.updated_at else None,
+                 "updated_at": updated_project.updated_at.isoformat() if updated_project.updated_at else None,
             }
         }
     except SQLAlchemyError as e:
@@ -559,8 +628,6 @@ async def update_project(
     except Exception as e:
         logger.error(f"Unexpected error updating project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
 
 
 @mcp_instance.tool()
@@ -572,7 +639,7 @@ async def delete_project(project_id: int, ctx: Context) -> Dict[str, Any]:
         return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session: # Get session via context
-            async with session.begin(): # Use transaction
+             async with session.begin(): # Use transaction
                 deleted = await _delete_project_in_db(session, project_id)
 
         if deleted:
@@ -592,8 +659,6 @@ async def delete_project(project_id: int, ctx: Context) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Unexpected error processing delete_project tool for {project_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
 
 
 @mcp_instance.tool()
@@ -617,7 +682,7 @@ async def set_active_project(project_id: int, ctx: Context) -> Dict[str, Any]:
         # Format the success response for the MCP client
         logger.info(f"Project {project_id} is now the active project (via MCP tool).")
         return {
-            "message": f"Project ID {project_id} set as active",
+             "message": f"Project ID {project_id} set as active",
             "project": { # Return some basic info
                 "id": activated_project.id,
                 "name": activated_project.name,
@@ -631,11 +696,6 @@ async def set_active_project(project_id: int, ctx: Context) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Unexpected error setting active project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
-
-
-
 
 
 @mcp_instance.tool()
@@ -677,13 +737,13 @@ async def add_document(
         return {
             "message": "Document added successfully",
             "document": { # Return basic info
-                "id": added_document.id,
+                 "id": added_document.id,
                 "project_id": added_document.project_id,
                 "name": added_document.name,
                 "path": added_document.path,
                 "type": added_document.type,
                 "version": added_document.version,
-                "created_at": added_document.created_at.isoformat() if added_document.created_at else None,
+                 "created_at": added_document.created_at.isoformat() if added_document.created_at else None,
                 "updated_at": added_document.updated_at.isoformat() if added_document.updated_at else None,
                 # Add initial_version_id if needed
             }
@@ -694,12 +754,6 @@ async def add_document(
     except Exception as e:
         logger.error(f"Unexpected error adding document to project {project_id} via MCP tool: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
-
-
-
-
 
 
 @mcp_instance.tool()
@@ -725,12 +779,12 @@ async def list_documents_for_project(project_id: int, ctx: Context) -> Dict[str,
             for doc in documents:
                 documents_data.append({
                     "id": doc.id,
-                    "project_id": doc.project_id,
+                     "project_id": doc.project_id,
                     "name": doc.name,
                     "path": doc.path,
                     "type": doc.type,
                     "version": doc.version,  # Current version stored on Document
-                    "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                     "created_at": doc.created_at.isoformat() if doc.created_at else None,
                     "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
                 })
         logger.info(
@@ -744,11 +798,6 @@ async def list_documents_for_project(project_id: int, ctx: Context) -> Dict[str,
         logger.error(
             f"Unexpected error listing documents for project {project_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
-
-
-
 
 
 @mcp_instance.tool()
@@ -779,7 +828,7 @@ async def list_document_versions(document_id: int, ctx: Context) -> Dict[str, An
                  versions_data.append({
                      "version_id": version.id, # The unique ID of the version record
                      "document_id": version.document_id,
-                     "version_string": version.version, # The version name/number (e.g., "1.0.0", "2.1")
+                      "version_string": version.version, # The version name/number (e.g., "1.0.0", "2.1")
                      "created_at": version.created_at.isoformat() if version.created_at else None,
                      # Optionally add a flag if this is the 'current' version on the parent Document
                      "is_current": version.version == document.version
@@ -798,15 +847,14 @@ async def list_document_versions(document_id: int, ctx: Context) -> Dict[str, An
         return {"error": f"Unexpected server error: {e}"}
 
 
-
 @mcp_instance.tool() # Changed from .resource("document_version://{version_id}")
 async def get_document_version_content(version_id: int, ctx: Context = None) -> Dict[str, Any]: # Added ctx
     """Tool handler to get the content of a specific document version by its ID.""" # Docstring updated
     logger.info(f"Handling get_document_version_content TOOL request for version ID: {version_id}")
     if not ctx:
-         # Although marked optional, tools should receive ctx from FastMCP
-         logger.error("Context (ctx) argument missing in get_document_version_content call.")
-         return {"error": "Internal server error: Context missing."}
+        # Although marked optional, tools should receive ctx from FastMCP
+        logger.error("Context (ctx) argument missing in get_document_version_content call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         # Use the get_session helper now that ctx is available
         async with await get_session(ctx) as session:
@@ -814,7 +862,7 @@ async def get_document_version_content(version_id: int, ctx: Context = None) -> 
             # Fetch the specific version, need to load related document for mime_type
             stmt = select(DocumentVersion).options(
                 selectinload(DocumentVersion.document) # Eager load parent document
-                ).where(DocumentVersion.id == version_id)
+            ).where(DocumentVersion.id == version_id)
             result = await session.execute(stmt)
             version = result.scalar_one_or_none()
             # Alternatively: version = await session.get(DocumentVersion, version_id, options=[selectinload(DocumentVersion.document)])
@@ -824,8 +872,8 @@ async def get_document_version_content(version_id: int, ctx: Context = None) -> 
                 return {"error": f"DocumentVersion {version_id} not found"}
 
             if version.document is None:
-                 logger.error(f"DocumentVersion {version_id} has no associated document loaded.")
-                 return {"error": f"Data integrity error for version {version_id}"}
+                logger.error(f"DocumentVersion {version_id} has no associated document loaded.")
+                return {"error": f"Data integrity error for version {version_id}"}
 
             logger.info(f"Found document version '{version.version}' (ID: {version_id}), returning content.")
             # Return result wrapped in a "result" key for tool convention
@@ -843,12 +891,6 @@ async def get_document_version_content(version_id: int, ctx: Context = None) -> 
     except Exception as e:
         logger.error(f"Unexpected error getting document version {version_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error processing tool"}
-
-# --- Keep other handlers ---
-
-
-
-
 
 
 @mcp_instance.resource("document://{document_id}") # Define URI pattern
@@ -883,11 +925,6 @@ async def get_document_content(document_id: int) -> Dict[str, Any]: # No ctx her
         if session:
             await session.close()
             logger.debug(f"Session closed for get_document_content {document_id}")
-
-
-
-
-
 
 
 @mcp_instance.tool()
@@ -965,13 +1002,6 @@ async def update_document(
         return {"error": f"Unexpected server error: {e}"}
 
 
-
-
-
-
-
-
-
 @mcp_instance.tool()
 async def delete_document(document_id: int, ctx: Context) -> Dict[str, Any]:
     """Deletes a specific document by its ID and its associated versions (MCP Tool Wrapper)."""
@@ -997,14 +1027,6 @@ async def delete_document(document_id: int, ctx: Context) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Unexpected error processing delete_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
-
-
-
-
-
-
 
 
 # --- Add the following Memory Entry Tools ---
@@ -1052,22 +1074,22 @@ async def add_memory_entry(
         logger.info(
             f"Memory entry '{title}' (ID: {new_entry.id}) added successfully to project {project_id}.")
         return {
-            "message": "Memory entry added successfully",
+             "message": "Memory entry added successfully",
             "memory_entry": {
                 "id": new_entry.id,
                 "project_id": new_entry.project_id,
                 "type": new_entry.type,
                 "title": new_entry.title,
-                # Avoid sending potentially large content back unless necessary
+                 # Avoid sending potentially large content back unless necessary
                 # "content": new_entry.content,
                 "created_at": new_entry.created_at.isoformat() if new_entry.created_at else None,
                 "updated_at": new_entry.updated_at.isoformat() if new_entry.updated_at else None,
             }
         }
     except SQLAlchemyError as e:
-        logger.error(
+         logger.error(
             f"Database error adding memory entry to project {project_id}: {e}", exc_info=True)
-        return {"error": f"Database error: {e}"}
+         return {"error": f"Database error: {e}"}
     except Exception as e:
         logger.error(
             f"Unexpected error adding memory entry to project {project_id}: {e}", exc_info=True)
@@ -1085,17 +1107,17 @@ async def list_memory_entries(project_id: int, ctx: Context) -> Dict[str, Any]:
             # Verify project exists first
             project = await session.get(Project, project_id)
             if project is None:
-                logger.warning(
+                 logger.warning(
                     f"Project with ID {project_id} not found for listing memory entries.")
-                return {"error": f"Project with ID {project_id} not found"}
+                 return {"error": f"Project with ID {project_id} not found"}
 
             # Query memory entries for the project
             stmt = select(MemoryEntry).where(MemoryEntry.project_id ==
-                                             project_id).order_by(MemoryEntry.updated_at.desc())
+                                              project_id).order_by(MemoryEntry.updated_at.desc())
             result = await session.execute(stmt)
             entries = result.scalars().all()
             for entry in entries:
-                entries_data.append({
+                 entries_data.append({
                     "id": entry.id,
                     "project_id": entry.project_id,
                     "type": entry.type,
@@ -1134,16 +1156,16 @@ async def get_memory_entry(memory_entry_id: int, ctx: Context) -> Dict[str, Any]
             # Return the full entry data, including content
             return {
                 "memory_entry": {
-                    "id": entry.id,
+                     "id": entry.id,
                     "project_id": entry.project_id,
                     "type": entry.type,
                     "title": entry.title,
                     "content": entry.content,  # Include content for get
-                    "created_at": entry.created_at.isoformat() if entry.created_at else None,
+                     "created_at": entry.created_at.isoformat() if entry.created_at else None,
                     "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
                     # TODO: Add related documents, tags, relations later
                 }
-            }
+             }
     except SQLAlchemyError as e:
         logger.error(
             f"Database error getting memory entry {memory_entry_id}: {e}", exc_info=True)
@@ -1154,6 +1176,7 @@ async def get_memory_entry(memory_entry_id: int, ctx: Context) -> Dict[str, Any]
         return {"error": f"Unexpected server error: {e}"}
 
 
+# --- Corrected Indentation ---
 @mcp_instance.tool()
 async def update_memory_entry(
     memory_entry_id: int,
@@ -1186,6 +1209,7 @@ async def update_memory_entry(
                 for key, value in update_data.items():
                     if value is not None and getattr(entry, key) != value:
                         setattr(entry, key, value)
+                        # Ensure this line is indented correctly under the 'if'
                         updated = True
 
                 if not updated:
@@ -1194,26 +1218,30 @@ async def update_memory_entry(
                     await session.refresh(entry)
                     return {
                         "message": "No update applied to memory entry",
-                        "memory_entry": {
+                         "memory_entry": {
                             "id": entry.id,
                             "title": entry.title,
-                            "project_id": entry.project_id,
+                             "project_id": entry.project_id,
                             "type": entry.type,
                             "created_at": entry.created_at.isoformat() if entry.created_at else None,
                             "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
                         }  # Return current state (content omitted for brevity)
                     }
-
+                # This block executes only if 'updated' is True
                 logger.info(f"Updating memory entry ID: {memory_entry_id}")
                 await session.flush()
                 await session.refresh(entry)  # Get updated timestamp etc.
 
-            # Transaction commits here
+            # Transaction commits here (if successful)
             logger.info(
                 f"Memory entry {memory_entry_id} updated successfully.")
+            # This return is outside the 'async with session.begin()'
+            # but inside 'async with await get_session(ctx) as session:'
+            # Indentation needs care if restructuring
+            # Assuming it should return the updated entry state after successful commit:
             return {
                 "message": "Memory entry updated successfully",
-                "memory_entry": {
+                 "memory_entry": {
                     "id": entry.id, "project_id": entry.project_id, "type": entry.type,
                     "title": entry.title,  # "content": entry.content, # Maybe omit content?
                     "created_at": entry.created_at.isoformat() if entry.created_at else None,
@@ -1229,6 +1257,7 @@ async def update_memory_entry(
         logger.error(
             f"Unexpected error updating memory entry {memory_entry_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+# --- End Corrected Indentation ---
 
 
 @mcp_instance.tool()
@@ -1236,6 +1265,9 @@ async def delete_memory_entry(memory_entry_id: int, ctx: Context) -> Dict[str, A
     """Deletes a specific memory entry by its ID."""
     logger.info(
         f"Handling delete_memory_entry request for ID: {memory_entry_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in delete_memory_entry call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():  # Use transaction
@@ -1243,13 +1275,13 @@ async def delete_memory_entry(memory_entry_id: int, ctx: Context) -> Dict[str, A
 
                 if entry is None:
                     logger.warning(
-                        f"MemoryEntry with ID {memory_entry_id} not found for deletion.")
+                         f"MemoryEntry with ID {memory_entry_id} not found for deletion.")
                     return {"error": f"MemoryEntry with ID {memory_entry_id} not found"}
 
                 logger.info(
                     f"Deleting memory entry ID: {memory_entry_id} ('{entry.title}')")
                 await session.delete(entry)
-                # Cascaded deletes for relations/tags should happen automatically if configured correctly in model/DB
+                 # Cascaded deletes for relations/tags should happen automatically if configured correctly in model/DB
             # Commit happens automatically
 
         logger.info(f"Memory entry {memory_entry_id} deleted successfully.")
@@ -1265,113 +1297,86 @@ async def delete_memory_entry(memory_entry_id: int, ctx: Context) -> Dict[str, A
         return {"error": f"Unexpected server error: {e}"}
 
 
-
-
-
-
-
 # --- Add the following Tagging Tools ---
 
-async def _get_or_create_tag(session: AsyncSession, tag_name: str) -> Tag:
-    """Helper function to get a Tag or create it if it doesn't exist."""
-    stmt = select(Tag).where(Tag.name == tag_name)
-    result = await session.execute(stmt)
-    tag = result.scalar_one_or_none()
-    if tag is None:
-        logger.info(f"Tag '{tag_name}' not found, creating...")
-        tag = Tag(name=tag_name)
-        session.add(tag)
-        # Flush to ensure the tag is persisted before associating
-        # Needed if using the tag object immediately in the same transaction
-        await session.flush()
-        await session.refresh(tag)
-        logger.info(f"Tag '{tag_name}' created.")
-    return tag
-
+# --- MODIFIED MCP TOOL: Use DB Helper ---
 @mcp_instance.tool()
 async def add_tag_to_document(document_id: int, tag_name: str, ctx: Context) -> Dict[str, Any]:
-    """Adds a tag to a specific document."""
-    logger.info(f"Handling add_tag_to_document request for doc ID: {document_id}, tag: {tag_name}")
+    """Adds a tag to a specific document (MCP Tool Wrapper)."""
+    logger.info(f"Handling MCP tool add_tag_to_document request for doc ID: {document_id}, tag: {tag_name}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in add_tag_to_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
-                # Use selectinload to efficiently load tags if checking for existence
-                stmt = select(Document).options(selectinload(Document.tags)).where(Document.id == document_id)
-                result = await session.execute(stmt)
-                document = result.scalar_one_or_none()
-                # document = await session.get(Document, document_id, options=[selectinload(Document.tags)]) # Alternative get with options
+                # Call the refactored database helper function
+                success = await _add_tag_to_document_db(session, document_id, tag_name)
 
-                if document is None:
-                    logger.warning(f"Document {document_id} not found for adding tag.")
-                    return {"error": f"Document {document_id} not found"}
-
-                tag = await _get_or_create_tag(session, tag_name)
-
-                if tag in document.tags:
-                    logger.info(f"Tag '{tag_name}' already exists on document {document_id}.")
-                    return {"message": "Tag already exists on document"}
+            # Check the result from the helper
+            if success:
+                logger.info(f"MCP Tool: Tag '{tag_name}' added/already present on document {document_id}.")
+                # Message adjusted to reflect it might have existed
+                return {"message": f"Tag '{tag_name}' associated with document {document_id}"}
+            else:
+                # Helper returned False, likely document not found or DB error (already logged by helper)
+                logger.error(f"MCP Tool: Failed to add tag '{tag_name}' to document {document_id}.")
+                # Determine specific error? For now, generic failure. Helper logs specifics.
+                # Check if doc exists first to provide better error?
+                doc_exists = await session.get(Document, document_id) # This needs to be outside the transaction begin() block
+                if doc_exists is None:
+                     return {"error": f"Document {document_id} not found"}
                 else:
-                    document.tags.add(tag)
-                    logger.info(f"Tag '{tag_name}' added to document {document_id}.")
-                    # Flush may be needed if using the relationship immediately after
-                    # await session.flush()
+                     return {"error": f"Database error adding tag '{tag_name}' to document {document_id}"}
 
-            # Commit successful
-        return {"message": f"Tag '{tag_name}' added to document {document_id}"}
-    except SQLAlchemyError as e:
-        logger.error(f"Database error adding tag to document {document_id}: {e}", exc_info=True)
+    except SQLAlchemyError as e: # Catch errors during session/transaction setup/commit
+        logger.error(f"Database error processing add_tag_to_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(f"Unexpected error adding tag to document {document_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error processing add_tag_to_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
 
 
+# --- MODIFIED MCP TOOL: Use DB Helper ---
 @mcp_instance.tool()
 async def remove_tag_from_document(document_id: int, tag_name: str, ctx: Context) -> Dict[str, Any]:
-    """Removes a tag from a specific document."""
-    logger.info(f"Handling remove_tag_from_document request for doc ID: {document_id}, tag: {tag_name}")
+    """Removes a tag from a specific document (MCP Tool Wrapper)."""
+    logger.info(f"Handling MCP tool remove_tag_from_document request for doc ID: {document_id}, tag: {tag_name}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in remove_tag_from_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
-                # Load the document and its tags efficiently
-                stmt = select(Document).options(selectinload(Document.tags)).where(Document.id == document_id)
-                result = await session.execute(stmt)
-                document = result.scalar_one_or_none()
+                # Call the refactored database helper function
+                success = await _remove_tag_from_document_db(session, document_id, tag_name)
 
-                if document is None:
-                    logger.warning(f"Document {document_id} not found for removing tag.")
-                    return {"error": f"Document {document_id} not found"}
+            # Check the result from the helper
+            if success:
+                # Helper returns True if removed OR if tag/doc wasn't found
+                logger.info(f"MCP Tool: Tag '{tag_name}' removed or was not present on document {document_id}.")
+                return {"message": f"Tag '{tag_name}' disassociated from document {document_id}"}
+            else:
+                # Helper returned False, indicating a database error during removal (already logged by helper)
+                logger.error(f"MCP Tool: Failed to remove tag '{tag_name}' from document {document_id} due to DB error.")
+                return {"error": f"Database error removing tag '{tag_name}' from document {document_id}"}
 
-                # Find the tag object within the document's tags
-                tag_to_remove = None
-                for tag in document.tags:
-                    if tag.name == tag_name:
-                        tag_to_remove = tag
-                        break
-
-                if tag_to_remove:
-                    document.tags.remove(tag_to_remove)
-                    logger.info(f"Tag '{tag_name}' removed from document {document_id}.")
-                    # Optionally, check if the tag is now orphaned and delete it if desired
-                    # This requires checking relationships from the Tag side.
-                else:
-                    logger.warning(f"Tag '{tag_name}' not found on document {document_id}.")
-                    return {"message": "Tag not found on document"}
-
-            # Commit successful
-        return {"message": f"Tag '{tag_name}' removed from document {document_id}"}
-    except SQLAlchemyError as e:
-        logger.error(f"Database error removing tag from document {document_id}: {e}", exc_info=True)
+    except SQLAlchemyError as e: # Catch errors during session/transaction setup/commit
+        logger.error(f"Database error processing remove_tag_from_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Database error: {e}"}
     except Exception as e:
-        logger.error(f"Unexpected error removing tag from document {document_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error processing remove_tag_from_document tool for {document_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
+
 
 @mcp_instance.tool()
 async def list_tags_for_document(document_id: int, ctx: Context) -> Dict[str, Any]:
     """Lists all tags associated with a specific document."""
     logger.info(f"Handling list_tags_for_document request for doc ID: {document_id}")
     tag_names = []
+    if not ctx:
+        logger.error("Context (ctx) argument missing in list_tags_for_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
              # Load the document and its tags efficiently
@@ -1395,13 +1400,15 @@ async def list_tags_for_document(document_id: int, ctx: Context) -> Dict[str, An
         return {"error": f"Unexpected server error: {e}"}
 
 
-
 # --- Add the following Memory Entry Tagging Tools ---
 
 @mcp_instance.tool()
 async def add_tag_to_memory_entry(memory_entry_id: int, tag_name: str, ctx: Context) -> Dict[str, Any]:
     """Adds a tag to a specific memory entry."""
     logger.info(f"Handling add_tag_to_memory_entry request for entry ID: {memory_entry_id}, tag: {tag_name}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in add_tag_to_memory_entry call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
@@ -1438,6 +1445,9 @@ async def add_tag_to_memory_entry(memory_entry_id: int, tag_name: str, ctx: Cont
 async def remove_tag_from_memory_entry(memory_entry_id: int, tag_name: str, ctx: Context) -> Dict[str, Any]:
     """Removes a tag from a specific memory entry."""
     logger.info(f"Handling remove_tag_from_memory_entry request for entry ID: {memory_entry_id}, tag: {tag_name}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in remove_tag_from_memory_entry call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
@@ -1467,8 +1477,8 @@ async def remove_tag_from_memory_entry(memory_entry_id: int, tag_name: str, ctx:
             # Commit successful
         return {"message": f"Tag '{tag_name}' removed from memory entry {memory_entry_id}"}
     except SQLAlchemyError as e:
-        logger.error(f"Database error removing tag from memory entry {memory_entry_id}: {e}", exc_info=True)
-        return {"error": f"Database error: {e}"}
+         logger.error(f"Database error removing tag from memory entry {memory_entry_id}: {e}", exc_info=True)
+         return {"error": f"Database error: {e}"}
     except Exception as e:
         logger.error(f"Unexpected error removing tag from memory entry {memory_entry_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
@@ -1478,6 +1488,9 @@ async def list_tags_for_memory_entry(memory_entry_id: int, ctx: Context) -> Dict
     """Lists all tags associated with a specific memory entry."""
     logger.info(f"Handling list_tags_for_memory_entry request for entry ID: {memory_entry_id}")
     tag_names = []
+    if not ctx:
+        logger.error("Context (ctx) argument missing in list_tags_for_memory_entry call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
              # Load the entry and its tags efficiently
@@ -1486,25 +1499,19 @@ async def list_tags_for_memory_entry(memory_entry_id: int, ctx: Context) -> Dict
              entry = result.scalar_one_or_none()
 
              if entry is None:
-                 logger.warning(f"MemoryEntry {memory_entry_id} not found for listing tags.")
-                 return {"error": f"MemoryEntry {memory_entry_id} not found"}
+                  logger.warning(f"MemoryEntry {memory_entry_id} not found for listing tags.")
+                  return {"error": f"MemoryEntry {memory_entry_id} not found"}
 
              tag_names = sorted([tag.name for tag in entry.tags]) # Get names from Tag objects
 
         logger.info(f"Found {len(tag_names)} tags for memory entry {memory_entry_id}.")
         return {"tags": tag_names}
     except SQLAlchemyError as e:
-        logger.error(f"Database error listing tags for memory entry {memory_entry_id}: {e}", exc_info=True)
-        return {"error": f"Database error: {e}"}
+         logger.error(f"Database error listing tags for memory entry {memory_entry_id}: {e}", exc_info=True)
+         return {"error": f"Database error: {e}"}
     except Exception as e:
         logger.error(f"Unexpected error listing tags for memory entry {memory_entry_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
-
-
-
-
-
-
 
 
 # --- Add the following Relationship Management Tools ---
@@ -1513,6 +1520,9 @@ async def list_tags_for_memory_entry(memory_entry_id: int, ctx: Context) -> Dict
 async def link_memory_entry_to_document(memory_entry_id: int, document_id: int, ctx: Context) -> Dict[str, Any]:
     """Links an existing Memory Entry to an existing Document."""
     logger.info(f"Handling link_memory_entry_to_document request for entry ID: {memory_entry_id} and doc ID: {document_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in link_memory_entry_to_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
@@ -1535,7 +1545,7 @@ async def link_memory_entry_to_document(memory_entry_id: int, document_id: int, 
                 else:
                     # Append the Document object to the MemoryEntry's documents collection
                     entry.documents.append(document)
-                    # SQLAlchemy handles the insert into the association table
+                     # SQLAlchemy handles the insert into the association table
                     logger.info(f"Linked Document {document_id} to MemoryEntry {memory_entry_id}.")
                     # session.add(entry) # Usually implicit when modifying loaded object
 
@@ -1554,6 +1564,9 @@ async def list_documents_for_memory_entry(memory_entry_id: int, ctx: Context) ->
     """Lists all documents linked to a specific memory entry."""
     logger.info(f"Handling list_documents_for_memory_entry request for entry ID: {memory_entry_id}")
     documents_data = []
+    if not ctx:
+        logger.error("Context (ctx) argument missing in list_documents_for_memory_entry call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
              # Fetch the entry and eagerly load its linked documents
@@ -1567,11 +1580,11 @@ async def list_documents_for_memory_entry(memory_entry_id: int, ctx: Context) ->
 
              for doc in entry.documents: # Iterate through the loaded documents relationship
                  documents_data.append({
-                     "id": doc.id,
+                      "id": doc.id,
                      "name": doc.name,
                      "path": doc.path,
                      "type": doc.type,
-                     "version": doc.version,
+                      "version": doc.version,
                      "created_at": doc.created_at.isoformat() if doc.created_at else None,
                      "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
                  })
@@ -1624,12 +1637,12 @@ async def link_memory_entries(
                 #     return {"message": "Relationship already exists", "relation_id": existing_relation.id}
 
 
-                # Create the new relationship entry
+                 # Create the new relationship entry
                 new_relation = MemoryEntryRelation(
                     source_memory_entry_id=source_memory_entry_id,
                     target_memory_entry_id=target_memory_entry_id,
                     relation_type=relation_type
-                )
+                 )
                 session.add(new_relation)
                 await session.flush() # Ensure ID is available
                 await session.refresh(new_relation)
@@ -1660,9 +1673,12 @@ async def list_related_memory_entries(memory_entry_id: int, ctx: Context) -> Dic
     logger.info(f"Handling list_related_memory_entries request for entry ID: {memory_entry_id}")
     relations_from = []
     relations_to = []
+    if not ctx:
+        logger.error("Context (ctx) argument missing in list_related_memory_entries call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
-             # Fetch the entry and eagerly load its relations
+              # Fetch the entry and eagerly load its relations
              # We need to load the related entries themselves via the relation object
              stmt = select(MemoryEntry).options(
                  selectinload(MemoryEntry.source_relations).options(selectinload(MemoryEntryRelation.target_entry)),
@@ -1675,7 +1691,7 @@ async def list_related_memory_entries(memory_entry_id: int, ctx: Context) -> Dic
                  logger.warning(f"MemoryEntry {memory_entry_id} not found for listing relations.")
                  return {"error": f"MemoryEntry {memory_entry_id} not found"}
 
-             # Relations *from* this entry (entry is the source)
+              # Relations *from* this entry (entry is the source)
              for rel in entry.source_relations:
                  if rel.target_entry: # Check if target entry loaded correctly
                      relations_from.append({
@@ -1715,17 +1731,20 @@ async def list_related_memory_entries(memory_entry_id: int, ctx: Context) -> Dic
 async def unlink_memory_entry_from_document(memory_entry_id: int, document_id: int, ctx: Context) -> Dict[str, Any]:
     """Removes the link between a specific Memory Entry and a specific Document."""
     logger.info(f"Handling unlink_memory_entry_from_document request for entry ID: {memory_entry_id} and doc ID: {document_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in unlink_memory_entry_from_document call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin():
-                # Fetch the Memory Entry and eagerly load its linked documents
+                 # Fetch the Memory Entry and eagerly load its linked documents
                 stmt = select(MemoryEntry).options(selectinload(MemoryEntry.documents)).where(MemoryEntry.id == memory_entry_id)
                 result = await session.execute(stmt)
                 entry = result.scalar_one_or_none()
 
                 if entry is None:
-                    logger.warning(f"MemoryEntry {memory_entry_id} not found for unlinking document.")
-                    return {"error": f"MemoryEntry {memory_entry_id} not found"}
+                     logger.warning(f"MemoryEntry {memory_entry_id} not found for unlinking document.")
+                     return {"error": f"MemoryEntry {memory_entry_id} not found"}
 
                 # Find the specific document within the relationship collection
                 document_to_remove = None
@@ -1735,7 +1754,7 @@ async def unlink_memory_entry_from_document(memory_entry_id: int, document_id: i
                         break
 
                 if document_to_remove:
-                    # Remove the Document object from the collection
+                     # Remove the Document object from the collection
                     entry.documents.remove(document_to_remove)
                     # SQLAlchemy handles the deletion from the association table
                     logger.info(f"Unlinked Document {document_id} from MemoryEntry {memory_entry_id}.")
@@ -1746,8 +1765,8 @@ async def unlink_memory_entry_from_document(memory_entry_id: int, document_id: i
             # Commit successful
         return {"message": f"Unlinked document {document_id} from memory entry {memory_entry_id}"}
     except SQLAlchemyError as e:
-        logger.error(f"Database error unlinking memory entry {memory_entry_id} from doc {document_id}: {e}", exc_info=True)
-        return {"error": f"Database error: {e}"}
+         logger.error(f"Database error unlinking memory entry {memory_entry_id} from doc {document_id}: {e}", exc_info=True)
+         return {"error": f"Database error: {e}"}
     except Exception as e:
         logger.error(f"Unexpected error unlinking memory entry {memory_entry_id} from doc {document_id}: {e}", exc_info=True)
         return {"error": f"Unexpected server error: {e}"}
@@ -1757,6 +1776,9 @@ async def unlink_memory_entry_from_document(memory_entry_id: int, document_id: i
 async def unlink_memory_entries(relation_id: int, ctx: Context) -> Dict[str, Any]:
     """Removes a specific relationship link between two memory entries using the relation's ID."""
     logger.info(f"Handling unlink_memory_entries request for relation ID: {relation_id}")
+    if not ctx:
+        logger.error("Context (ctx) argument missing in unlink_memory_entries call.")
+        return {"error": "Internal server error: Context missing."}
     try:
         async with await get_session(ctx) as session:
             async with session.begin(): # Use transaction
@@ -1764,8 +1786,8 @@ async def unlink_memory_entries(relation_id: int, ctx: Context) -> Dict[str, Any
                 relation = await session.get(MemoryEntryRelation, relation_id)
 
                 if relation is None:
-                    logger.warning(f"MemoryEntryRelation with ID {relation_id} not found for deletion.")
-                    return {"error": f"Relation with ID {relation_id} not found"}
+                     logger.warning(f"MemoryEntryRelation with ID {relation_id} not found for deletion.")
+                     return {"error": f"Relation with ID {relation_id} not found"}
 
                 logger.info(f"Deleting relation ID: {relation_id} (linking {relation.source_memory_entry_id} -> {relation.target_memory_entry_id})")
                 # Delete the relation record itself
@@ -1783,15 +1805,7 @@ async def unlink_memory_entries(relation_id: int, ctx: Context) -> Dict[str, Any
         return {"error": f"Unexpected server error: {e}"}
 
 
-# --- Keep other handlers ---
-
-
-
-
-
-
-
-
+# --- Example/Placeholder handlers (can be removed if not needed) ---
 
 @mcp_instance.tool()
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
@@ -1808,9 +1822,3 @@ def get_user_profile(user_id: str) -> str:
     logger.info(f"Fetching profile for user_id: {user_id}")
     # TODO: Fetch actual profile
     return f"Profile data for user {user_id}"
-
-# --- TODO: Add other Project CRUD tools ---
-# @mcp_instance.tool() def get_project(project_id: int, ctx: Context) -> Dict: ...
-# @mcp_instance.tool() def update_project(project_id: int, name: Optional[str], ..., ctx: Context) -> Dict: ...
-# @mcp_instance.tool() def delete_project(project_id: int, ctx: Context) -> Dict: ...
-# @mcp_instance.tool() def set_active_project(project_id: int, ctx: Context) -> Dict: ...

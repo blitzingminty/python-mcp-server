@@ -26,3 +26,6 @@ env/
 *.njsproj
 *.sln
 *.swp
+src/web_routes (1).py
+src/templates/projects (1).html
+src/mcp_server_instance (1).py
