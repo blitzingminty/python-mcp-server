@@ -1,71 +1,55 @@
 # src/main.py
-# --- RESTRUCTURED FOR Uvicorn CMD Execution (Based on user's latest) ---
+# --- RESTRUCTURED FOR Uvicorn CMD Execution ---
 
 import logging
 import sys
 import uvicorn # Keep import
-import os # <--- Add import os
-from pathlib import Path # <--- Add import Path if not already there
-
-# --- Logging Setup ---
-logger = logging.getLogger()
-# ... (rest of logging setup) ...
-logger.info(f"Logging configured with level: {logging.getLevelName(logger.level)}")
-
-# --- ADD SIMPLE WRITE TEST ---
-test_dir = "/data/db"
-test_path = os.path.join(test_dir, "test_write.txt")
-logger.info(f"--- Attempting direct write test to: {test_path} ---")
-try:
-    # Ensure directory exists (Docker should create mount point, but double-check)
-    if not os.path.exists(test_dir):
-         logger.warning(f"Test directory {test_dir} does not exist!")
-         # Optionally try creating it, though permissions might still fail
-         # os.makedirs(test_dir, exist_ok=True)
-    # Try writing
-    with open(test_path, "w") as f:
-        f.write("test")
-    logger.info(f"--- Successfully wrote test file to {test_path} ---")
-    os.remove(test_path) # Clean up test file
-except Exception as e:
-    logger.error(f"--- !!!!! FAILED to write test file to {test_path}: {e} !!!!! ---", exc_info=True)
-logger.info(f"--- Finished direct write test ---")
-# --- END SIMPLE WRITE TEST ---
-
-
+import os
+from pathlib import Path
 
 # --- FastAPI Imports ---
-from fastapi import FastAPI, Request # Keep Request for health check
+from fastapi import FastAPI, Request # Keep Request for health check dependency
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
 
 # --- MCP / SSE Imports ---
 # Assume FastMCP handles SSE internally via sse_app()
 
 # --- Project Imports ---
 from src.config import settings
-from src.mcp_server_instance import mcp_instance # Keep your MCP instance
+# Import the MCP instance AND the lifespan function separately
+from src.mcp_server_instance import mcp_instance, app_lifespan
 # Ensure web_routes is importable
 try:
     from src.web_routes import router as web_ui_router
 except ImportError:
-    logger.error("Failed to import web_ui_router from src.web_routes")
-    # Depending on whether UI is essential, you might exit or just log
+    logging.error("Failed to import web_ui_router from src.web_routes", exc_info=True)
     web_ui_router = None # Set to None if import fails, handle below
-
+# ** Ensure your SQLAlchemy models are imported somewhere before lifespan runs **
+# This might be in models.py, which might be imported by mcp_server_instance or web_routes
+# If not, explicitly import them here:
+# from src import models # Or: from . import models
 
 # --- Logging Setup ---
 logger = logging.getLogger()
 # Use .upper() only if settings.LOG_LEVEL is expected to be lowercase string
 log_level_setting = getattr(settings, 'LOG_LEVEL', 'INFO') # Default to INFO
-logger.setLevel(log_level_setting.upper())
+# Ensure level is valid
+log_level_upper = log_level_setting.upper()
+if log_level_upper not in logging._nameToLevel:
+    log_level_upper = 'INFO' # Fallback to INFO if invalid level string
+    logger.warning(f"Invalid LOG_LEVEL '{log_level_setting}', defaulting to INFO.")
+
+logger.setLevel(log_level_upper)
 if not logger.hasHandlers():
      handler = logging.StreamHandler(sys.stdout)
-     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+     # Consistent formatter
+     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
      handler.setFormatter(formatter)
      logger.addHandler(handler)
 logger.info(f"Logging configured with level: {logging.getLevelName(logger.level)}")
+
+# --- REMOVED DIRECT WRITE TEST ---
 
 # --- Base Directory ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -81,16 +65,15 @@ logger.info("Creating FastAPI application instance...")
 app = FastAPI(
     title=settings.PROJECT_NAME + " (HTTP Mode)",
     version=settings.VERSION,
-    # Attach the lifespan from mcp_instance for DB init etc.
-    lifespan=getattr(mcp_instance, 'lifespan', None)
+    # --- Attach the lifespan DIRECTLY ---
+    lifespan=app_lifespan
 )
-if not getattr(mcp_instance, 'lifespan', None):
-    logger.warning("mcp_instance does not have a lifespan manager attached.")
-logger.info("FastAPI application instance created.")
+# --- REMOVED lifespan check log ---
+logger.info("FastAPI application instance created with explicit lifespan.")
 
 # --- Configure FastAPI App Instance ---
 
-# Store templates object in app state
+# Store templates object in app state (accessible in dependencies/routes via request.app.state.templates)
 app.state.templates = templates
 logger.info("Templates attached to app state.")
 
@@ -108,13 +91,13 @@ except Exception as e:
 # Include Web UI Router (if imported successfully)
 if web_ui_router:
     logger.info("Including Web UI router at '/ui'...")
+    # Make sure web_routes imports the get_db_session dependency correctly
     app.include_router(web_ui_router, prefix="/ui", tags=["Web UI"])
 else:
     logger.warning("Web UI router not imported, skipping inclusion.")
 
 
 # Mount the FastMCP SSE App directly under / (root)
-# This relies on mcp_instance.sse_app() providing the correct ASGI app
 try:
     sse_asgi_app = mcp_instance.sse_app()
     if sse_asgi_app:
@@ -137,7 +120,6 @@ except Exception as e:
 # Add Health Check for FastAPI itself (Optional)
 @app.get("/_fastapi_health", tags=["Health"])
 async def health_check():
-    # Note: This depends on Request being imported if you need request details
     logger.info("FastAPI health check requested")
     return {"status": "ok", "message": "FastAPI wrapper is running"}
 logger.info("Health check endpoint '/_fastapi_health' added.")
