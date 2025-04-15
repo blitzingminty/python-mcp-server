@@ -21,12 +21,12 @@ from pathlib import Path
 # --- Project Imports ---
 from src.config import settings
 from src.mcp_server_instance import mcp_instance # Keep your MCP instance
-from src.web_routes import router as web_ui_router
+from .web_routes import router as web_ui_router
 
 # --- Logging Setup ---
 # Keep your existing logging setup
 logger = logging.getLogger()
-logger.setLevel(settings.LOG_LEVEL.upper())
+logger.setLevel(settings.LOG_LEVEL)
 if not logger.hasHandlers():
      handler = logging.StreamHandler(sys.stdout)
      formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -114,9 +114,12 @@ def run_http_mode():
     logger.info("Starting Uvicorn server...")
     uvicorn.run(
         app,
+        app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         log_level=settings.LOG_LEVEL.lower(),
+        proxy_headers=True,        # Trust X-Forwarded-* headers
+        forwarded_allow_ips='*'    # Allow headers from any proxy (adjust if needed for security)
     )
 
 
