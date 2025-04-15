@@ -9,6 +9,8 @@ from .config import settings # Import settings from config.py
 
 logger = logging.getLogger(__name__) # <--- Add logger
 
+logger.info(f"DATABASE_URL from settings: {settings.DATABASE_URL}")
+
 # Create an asynchronous engine instance based on the DATABASE_URL from settings
 engine = create_async_engine(
     settings.DATABASE_URL,
