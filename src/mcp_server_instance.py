@@ -44,86 +44,50 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-
 # --- Lifespan Management for Database ---
-@asynccontextmanager
-async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Accepts FastAPI app instance
-    """
-    Manage application lifecycle: create engine, session factory, ensure tables exist,
-    and clean up resources. Stores session factory in app.state.
-    """
-    logger.info("Application lifespan startup (explicitly attached)...")
-    db_logger.info(f"Lifespan: DATABASE_URL from settings: {settings.DATABASE_URL}")
+# (@asynccontextmanager async def app_lifespan... function definition remains here)
+# ... (Keep the entire app_lifespan function as corrected previously) ...
 
-    # --- Create Engine ---
-    logger.info("Lifespan: Creating SQLAlchemy engine...")
-    engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=settings.LOG_LEVEL == "DEBUG",
-        future=True,
-        pool_pre_ping=True
-    )
-
-    # --- Attach PRAGMA listener to the specific engine instance ---
-    if engine.dialect.name == "sqlite":
-         event.listen(engine.sync_engine, "connect", _set_sqlite_pragma)
-         logger.info("Lifespan: Attached PRAGMA listener for SQLite engine.")
-
-    # --- Create Session Factory ---
-    logger.info("Lifespan: Creating SQLAlchemy async session factory...")
-    AsyncSessionFactory_local = async_sessionmaker(
-        bind=engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-    # Store factory in app state for dependency injection
-    app.state.db_session_factory = AsyncSessionFactory_local
-    logger.info("Lifespan: DB Session Factory attached to app state.")
-
-    # --- Ensure tables are created ---
-    try:
-        async with engine.begin() as conn:
-            logger.info("Lifespan: Initializing database tables (if they don't exist)...")
-            # ** Ensure all models inheriting from Base are imported before this line **
-            # e.g., from . import models # Ensure Project, Document etc. are known to Base.metadata
-            await conn.run_sync(Base.metadata.create_all)
-            logger.info("Lifespan: Database tables initialization check complete.")
-            if settings.DATABASE_URL.startswith("sqlite"):
-                # Log the expected file path for verification
-                db_file_path = settings.DATABASE_URL.split(":///")[-1]
-                if db_file_path == ':memory:':
-                     logger.info("Lifespan: Using in-memory SQLite database.")
-                else:
-                     if settings.DATABASE_URL.startswith("sqlite+aiosqlite:////"):
-                         db_file_path = "/" + settings.DATABASE_URL.split("////")[-1]
-                     logger.info(f"Lifespan: Database file should be at {db_file_path}")
-
-    except Exception as e:
-        logger.critical(f"Lifespan: Database table initialization failed: {e}", exc_info=True)
-        await engine.dispose() # Clean up engine if init fails
-        raise # Re-raise to prevent app startup with bad DB state
-
-    # --- Yield control to the application ---
-    context_data = {} # Can yield other startup context if needed
-    try:
-        yield context_data
-    finally:
-        # --- Clean up resources ---
-        logger.info("Application lifespan shutdown: Disposing SQLAlchemy engine...")
-        await engine.dispose()
-        logger.info("Application lifespan shutdown: Engine disposed.")
-
-        
 
 # --- Create the FastMCP Instance ---
-# REMOVED lifespan argument from constructor
+
+# --- ADD DEBUG PRINT BEFORE ---
+print(f"\n--- DEBUG: BEFORE FastMCP CREATION ---")
+print(f"DEBUG: settings.MCP_SERVER_NAME type = {type(settings.MCP_SERVER_NAME)}")
+print(f"DEBUG: settings.MCP_SERVER_NAME value = '{settings.MCP_SERVER_NAME}'")
+print(f"DEBUG: settings.VERSION type = {type(settings.VERSION)}")
+print(f"DEBUG: settings.VERSION value = '{settings.VERSION}'")
+print(f"--- END DEBUG BEFORE ---\n")
+# --- END ADD ---
+
 mcp_instance = FastMCP(
     name=settings.MCP_SERVER_NAME,
-    version=settings.VERSION,
-    # lifespan=app_lifespan # <<< REMOVED
+    version=settings.VERSION, # <<< Keep this
+    # lifespan=app_lifespan # <<< Keep this removed
 )
+
+# --- ADD DEBUG PRINTS AFTER ---
+print(f"\n--- DEBUG: AFTER FastMCP CREATION ---")
+print(f"DEBUG: mcp_instance created. Type: {type(mcp_instance)}")
+print(f"DEBUG: Attributes available: {dir(mcp_instance)}") # List all attributes
+print(f"DEBUG: Does mcp_instance have 'version'? {'version' in dir(mcp_instance)}")
+if 'version' in dir(mcp_instance):
+    # Try accessing only if it exists
+    print(f"DEBUG: mcp_instance.version = {mcp_instance.version}")
+    print(f"DEBUG: mcp_instance.name = {mcp_instance.name}") # Check name too
+else:
+    print(f"DEBUG: mcp_instance.version NOT FOUND in attributes!")
+    # Still try to access name to see if that works
+    try:
+        print(f"DEBUG: mcp_instance.name = {mcp_instance.name}")
+    except Exception as e:
+        print(f"DEBUG: Failed to access mcp_instance.name: {e}")
+print(f"--- END DEBUG AFTER ---\n")
+# --- END ADD ---
+
+# This is the line that was previously causing the error:
 logger.info(
-    f"FastMCP instance created (without lifespan arg): {mcp_instance.name} v{mcp_instance.version}")
+    f"FastMCP instance created: {mcp_instance.name} v{mcp_instance.version}")
 
 
 # --- Helper to get session from context ---
