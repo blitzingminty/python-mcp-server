@@ -114,7 +114,6 @@ def run_http_mode():
     logger.info("Starting Uvicorn server...")
     uvicorn.run(
         app,
-        app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         log_level=settings.LOG_LEVEL.lower(),
