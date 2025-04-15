@@ -19,4 +19,4 @@ COPY ./src /app/src
 
 # Command to run the application using the main script
 # Configuration (host, port) will be picked up from environment variables via config.py
-CMD ["python", "src/main.py"]
+CMD ["uvicorn", "src.main:app", "--proxy-headers", "--forwarded-allow-ips", "*"]
