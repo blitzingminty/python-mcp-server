@@ -49,45 +49,21 @@ logger = logging.getLogger(__name__)
 # ... (Keep the entire app_lifespan function as corrected previously) ...
 
 
+
 # --- Create the FastMCP Instance ---
-
-# --- ADD DEBUG PRINT BEFORE ---
-print(f"\n--- DEBUG: BEFORE FastMCP CREATION ---")
-print(f"DEBUG: settings.MCP_SERVER_NAME type = {type(settings.MCP_SERVER_NAME)}")
-print(f"DEBUG: settings.MCP_SERVER_NAME value = '{settings.MCP_SERVER_NAME}'")
-print(f"DEBUG: settings.VERSION type = {type(settings.VERSION)}")
-print(f"DEBUG: settings.VERSION value = '{settings.VERSION}'")
-print(f"--- END DEBUG BEFORE ---\n")
-# --- END ADD ---
-
 mcp_instance = FastMCP(
     name=settings.MCP_SERVER_NAME,
-    version=settings.VERSION, # <<< Keep this
-    # lifespan=app_lifespan # <<< Keep this removed
+    version=settings.VERSION,
+    # lifespan=app_lifespan # <<< Keep removed
 )
 
-# --- ADD DEBUG PRINTS AFTER ---
-print(f"\n--- DEBUG: AFTER FastMCP CREATION ---")
-print(f"DEBUG: mcp_instance created. Type: {type(mcp_instance)}")
-print(f"DEBUG: Attributes available: {dir(mcp_instance)}") # List all attributes
-print(f"DEBUG: Does mcp_instance have 'version'? {'version' in dir(mcp_instance)}")
-if 'version' in dir(mcp_instance):
-    # Try accessing only if it exists
-    print(f"DEBUG: mcp_instance.version = {mcp_instance.version}")
-    print(f"DEBUG: mcp_instance.name = {mcp_instance.name}") # Check name too
-else:
-    print(f"DEBUG: mcp_instance.version NOT FOUND in attributes!")
-    # Still try to access name to see if that works
-    try:
-        print(f"DEBUG: mcp_instance.name = {mcp_instance.name}")
-    except Exception as e:
-        print(f"DEBUG: Failed to access mcp_instance.name: {e}")
-print(f"--- END DEBUG AFTER ---\n")
-# --- END ADD ---
+# --- REMOVED DEBUG PRINT STATEMENTS ---
 
-# This is the line that was previously causing the error:
+# --- CORRECTED Log Line ---
+# Use settings.VERSION directly since mcp_instance.version is not set by the library
 logger.info(
-    f"FastMCP instance created: {mcp_instance.name} v{mcp_instance.version}")
+    f"FastMCP instance created: {mcp_instance.name} v{settings.VERSION}")
+# --- END CORRECTION ---
 
 
 # --- Helper to get session from context ---
