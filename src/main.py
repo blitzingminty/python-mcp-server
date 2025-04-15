@@ -60,6 +60,17 @@ def run_http_mode():
     """Runs the server in HTTP mode using FastAPI mounting FastMCP & WebUI."""
     logger.info(f"Starting server in HTTP mode (FastAPI + FastMCP + WebUI) on {settings.SERVER_HOST}:{settings.SERVER_PORT}...")
 
+    # --- Initialize Database Tables ---
+    try:
+        from src.database import init_db
+        import asyncio
+        logger.info("Initializing database tables...")
+        asyncio.run(init_db())
+        logger.info("Database tables initialized.")
+    except Exception as e:
+        logger.critical(f"Failed to initialize database: {e}", exc_info=True)
+        sys.exit(1)
+
     # --- Create the main FastAPI App ---
     app = FastAPI(
         title=settings.PROJECT_NAME + " (HTTP Mode)",
