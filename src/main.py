@@ -19,8 +19,8 @@ from pathlib import Path
 # Assume FastMCP handles this internally via sse_app()
 
 # --- Project Imports ---
-from src.config import settings
-from src.mcp_server_instance import mcp_instance # Keep your MCP instance
+from .config import settings
+from .mcp_server_instance import mcp_instance # Keep your MCP instance
 from .web_routes import router as web_ui_router
 
 # --- Logging Setup ---
