@@ -26,7 +26,7 @@ from src.web_routes import router as web_ui_router
 # --- Logging Setup ---
 # Keep your existing logging setup
 logger = logging.getLogger()
-logger.setLevel(settings.LOG_LEVEL)
+logger.setLevel(settings.LOG_LEVEL.upper())
 if not logger.hasHandlers():
      handler = logging.StreamHandler(sys.stdout)
      formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
