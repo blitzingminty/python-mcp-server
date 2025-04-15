@@ -827,7 +827,7 @@ async def get_document_version_content(version_id: int, ctx: Context = None) -> 
     except Exception as e: logger.error(f"Unexpected error processing get_document_version_content tool for {version_id}: {e}", exc_info=True); return {"error": f"Unexpected server error processing tool"}
 
 @mcp_instance.resource("document://{document_id}")
-async def get_document_content(document_id: int, ctx: Context) -> Dict[str, Any]: # Added ctx
+async def get_document_content(document_id: int) -> Dict[str, Any]: # REMOVED ctx: Context
     logger.info(f"Handling get_document_content resource request for document ID: {document_id}")
     if not ctx: logger.error("Context (ctx) argument missing in get_document_content resource call."); return {"error": "Internal server error: Context missing."}
     try:
