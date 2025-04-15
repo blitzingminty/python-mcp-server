@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # --- Lifespan Management for Database ---
 @asynccontextmanager
-async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Updated signature
+async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Accepts FastAPI app instance
     """
     Manage application lifecycle: create engine, session factory, ensure tables exist,
     and clean up resources. Stores session factory in app.state.
@@ -59,22 +59,20 @@ async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Updated
     logger.info("Lifespan: Creating SQLAlchemy engine...")
     engine = create_async_engine(
         settings.DATABASE_URL,
-        echo=settings.LOG_LEVEL == "DEBUG", # Log SQL if LOG_LEVEL is DEBUG
+        echo=settings.LOG_LEVEL == "DEBUG",
         future=True,
-        pool_pre_ping=True # Good practice for checking connections
+        pool_pre_ping=True
     )
 
     # --- Attach PRAGMA listener to the specific engine instance ---
-    # Note: Use engine.sync_engine for events targeting the underlying DBAPI connection
     if engine.dialect.name == "sqlite":
          event.listen(engine.sync_engine, "connect", _set_sqlite_pragma)
          logger.info("Lifespan: Attached PRAGMA listener for SQLite engine.")
 
     # --- Create Session Factory ---
     logger.info("Lifespan: Creating SQLAlchemy async session factory...")
-    # Use the recommended async_sessionmaker
     AsyncSessionFactory_local = async_sessionmaker(
-        bind=engine, # Use bind=engine
+        bind=engine,
         class_=AsyncSession,
         expire_on_commit=False
     )
@@ -87,16 +85,15 @@ async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Updated
         async with engine.begin() as conn:
             logger.info("Lifespan: Initializing database tables (if they don't exist)...")
             # ** Ensure all models inheriting from Base are imported before this line **
-            # e.g., from . import models
+            # e.g., from . import models # Ensure Project, Document etc. are known to Base.metadata
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Lifespan: Database tables initialization check complete.")
-            # Verify file path (especially useful with bind mounts/volumes)
             if settings.DATABASE_URL.startswith("sqlite"):
+                # Log the expected file path for verification
                 db_file_path = settings.DATABASE_URL.split(":///")[-1]
                 if db_file_path == ':memory:':
                      logger.info("Lifespan: Using in-memory SQLite database.")
                 else:
-                     # Handle potential 4 slashes for absolute paths
                      if settings.DATABASE_URL.startswith("sqlite+aiosqlite:////"):
                          db_file_path = "/" + settings.DATABASE_URL.split("////")[-1]
                      logger.info(f"Lifespan: Database file should be at {db_file_path}")
@@ -116,6 +113,7 @@ async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]: # Updated
         await engine.dispose()
         logger.info("Application lifespan shutdown: Engine disposed.")
 
+        
 
 # --- Create the FastMCP Instance ---
 # REMOVED lifespan argument from constructor
