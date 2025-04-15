@@ -4,6 +4,35 @@
 import logging
 import sys
 import uvicorn # Keep import
+import os # <--- Add import os
+from pathlib import Path # <--- Add import Path if not already there
+
+# --- Logging Setup ---
+logger = logging.getLogger()
+# ... (rest of logging setup) ...
+logger.info(f"Logging configured with level: {logging.getLevelName(logger.level)}")
+
+# --- ADD SIMPLE WRITE TEST ---
+test_dir = "/data/db"
+test_path = os.path.join(test_dir, "test_write.txt")
+logger.info(f"--- Attempting direct write test to: {test_path} ---")
+try:
+    # Ensure directory exists (Docker should create mount point, but double-check)
+    if not os.path.exists(test_dir):
+         logger.warning(f"Test directory {test_dir} does not exist!")
+         # Optionally try creating it, though permissions might still fail
+         # os.makedirs(test_dir, exist_ok=True)
+    # Try writing
+    with open(test_path, "w") as f:
+        f.write("test")
+    logger.info(f"--- Successfully wrote test file to {test_path} ---")
+    os.remove(test_path) # Clean up test file
+except Exception as e:
+    logger.error(f"--- !!!!! FAILED to write test file to {test_path}: {e} !!!!! ---", exc_info=True)
+logger.info(f"--- Finished direct write test ---")
+# --- END SIMPLE WRITE TEST ---
+
+
 
 # --- FastAPI Imports ---
 from fastapi import FastAPI, Request # Keep Request for health check
