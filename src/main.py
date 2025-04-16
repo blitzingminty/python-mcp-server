@@ -40,6 +40,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # --- Configure Templates ---
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "src/templates"))
 
+    # --- Create the main FastAPI App ---
+    app = FastAPI(
+        title=settings.PROJECT_NAME + " (HTTP Mode)",
+        version=settings.VERSION,
+        # *** Attach the lifespan from mcp_instance if it exists and handles DB init ***
+        lifespan=getattr(mcp_instance, 'lifespan', None)
+    )
+
+app.state.templates = templates
+
+
 
 # --- Main Application Logic ---
 
@@ -59,16 +70,6 @@ def run_stdio_mode():
 def run_http_mode():
     """Runs the server in HTTP mode using FastAPI mounting FastMCP & WebUI."""
     logger.info(f"Starting server in HTTP mode (FastAPI + FastMCP + WebUI) on {settings.SERVER_HOST}:{settings.SERVER_PORT}...")
-
-    # --- Create the main FastAPI App ---
-    app = FastAPI(
-        title=settings.PROJECT_NAME + " (HTTP Mode)",
-        version=settings.VERSION,
-        # *** Attach the lifespan from mcp_instance if it exists and handles DB init ***
-        lifespan=getattr(mcp_instance, 'lifespan', None)
-    )
-
-    app.state.templates = templates
 
     # --- Configure Static Files ---
     static_dir = PROJECT_ROOT / "src/static"
@@ -109,15 +110,6 @@ def run_http_mode():
     async def health_check():
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
-
-    # --- Run Uvicorn ---
-    logger.info("Starting Uvicorn server...")
-    uvicorn.run(
-        app,
-        host=settings.SERVER_HOST,
-        port=settings.SERVER_PORT,
-        log_level=settings.LOG_LEVEL.lower(),
-    )
 
 
 def main_server_runner():
