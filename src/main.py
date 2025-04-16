@@ -19,7 +19,7 @@ from pathlib import Path
 
 # --- Project Imports ---
 from .config import settings
-from .mcp_server_instance import mcp_instance # Keep your MCP instance
+from .mcp_server_instance import mcp_instance, app_lifespan
 from .web_routes import router as web_ui_router
 
 # --- Logging Setup ---
@@ -43,10 +43,9 @@ templates = Jinja2Templates(directory=str(PROJECT_ROOT / "src/templates"))
 app = FastAPI(
     title=settings.PROJECT_NAME + " (HTTP Mode)",
     version=settings.VERSION,
-    # *** Attach the lifespan from mcp_instance if it exists and handles DB init ***
-    lifespan=getattr(mcp_instance, 'lifespan', None)
+    # *** Pass the imported app_lifespan function directly ***
+    lifespan=app_lifespan  # <--- CORRECTED LIFESPAN ARGUMENT
 )
-
 app.state.templates = templates
 
 
@@ -64,7 +63,7 @@ def run_stdio_mode():
         raise
     finally:
         logger.info("Shutting down STDIO mode...")
-
+    pass 
 
 def run_http_mode():
     """Runs the server in HTTP mode using FastAPI mounting FastMCP & WebUI."""
@@ -74,6 +73,8 @@ def run_http_mode():
     static_dir = PROJECT_ROOT / "src/static"
     if not static_dir.is_dir():
         static_dir.mkdir(parents=True, exist_ok=True)
+    # Mount static files *before* including routers that might use them if needed,
+    # although usually order matters more for path matching overlaps.
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     logger.info(f"Static files mounted from {static_dir} at /static")
 
@@ -85,9 +86,9 @@ def run_http_mode():
     try:
         sse_asgi_app = mcp_instance.sse_app()
         if sse_asgi_app:
+            # Mount MCP app *after* more specific routes like /ui and /static
             app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
             logger.info("Mounted FastMCP SSE application at '/mcp'.")
-            # Assuming internal routes are /sse and /messages/ relative to mount point
             logger.info("--> Expected SSE connection endpoint: /mcp/sse")
             logger.info("--> Expected SSE message endpoint: /mcp/messages/")
         if not sse_asgi_app:
@@ -100,6 +101,7 @@ def run_http_mode():
         sys.exit(1)
 
     # --- Add Health Check for FastAPI itself (Optional) ---
+    # Define routes *before* running uvicorn
     @app.get("/_fastapi_health", tags=["Health"])
     async def health_check():
         logger.info("FastAPI health check requested")
@@ -108,15 +110,16 @@ def run_http_mode():
     # --- Run Uvicorn ---
     logger.info(f"Starting Uvicorn server process...")
     uvicorn.run(
-        app, # Use the app object where routes were configured
+        # Pass the app instance string if running uvicorn directly,
+        # or the app object if calling uvicorn.run programmatically.
+        # Since we are inside the script that defines 'app', pass the object.
+        app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         log_level=settings.LOG_LEVEL.lower(),
-        # --- ADD THESE LINES ---
-        proxy_headers=True,        # Trust X-Forwarded-Proto/Host/For etc.
-        forwarded_allow_ips='*'    # Trust headers from any proxy IP (adjust if needed)
-        # --- END ADD ---
-    )    # Note: uvicorn.run() is blocking, code after it in this function won't run until server stops.
+        proxy_headers=True,
+        forwarded_allow_ips='*'
+    )
 
 
 def main_server_runner():
@@ -129,6 +132,7 @@ def main_server_runner():
     else:
         logger.error(f"Invalid MCP_TRANSPORT setting: '{settings.MCP_TRANSPORT}'. Use 'http' or 'stdio'.")
         sys.exit(1)
+    pass
 
 if __name__ == "__main__":
     try:
@@ -138,3 +142,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Unhandled exception at top level: {e}", exc_info=True)
         sys.exit(1)
+    pass
