@@ -1,4 +1,3 @@
-# src/main.py
 # Main entry point - Refactored for FastMCP and direct execution
 # --- REVERTED TO USING mcp_instance.sse_app() ---
 
@@ -88,7 +87,7 @@ def run_http_mode():
     try:
         sse_asgi_app = mcp_instance.sse_app()
         if sse_asgi_app:
-             app.mount("/", sse_asgi_app, name="mcp_sse_app")
+             app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
              logger.info("Mounted FastMCP SSE application at '/mcp'.")
              # Assuming internal routes are /sse and /messages/ relative to mount point
              logger.info("--> Expected SSE connection endpoint: /mcp/sse")
@@ -131,4 +130,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Unhandled exception at top level: {e}", exc_info=True)
         sys.exit(1)
-
