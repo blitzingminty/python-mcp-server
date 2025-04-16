@@ -8,7 +8,7 @@ import uvicorn # For running FastAPI
 # import asyncio # No longer needed
 
 # --- FastAPI Imports ---
-from fastapi import FastAPI # Removed Request import
+from fastapi import FastAPI #, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
