@@ -81,28 +81,23 @@ def run_http_mode():
     logger.info("Including Web UI router at '/ui'...")
     app.include_router(web_ui_router, prefix="/ui", tags=["Web UI"])
 
-    # --- *** Mount the FastMCP SSE App directly under /mcp *** ---
-    # This assumes mcp_instance.sse_app() returns a configured ASGI app
-    # that handles both /sse (GET) and /messages/ (POST) relative to '/mcp/'
+    # --- Mount the FastMCP SSE App directly under /mcp ---
     try:
         sse_asgi_app = mcp_instance.sse_app()
         if sse_asgi_app:
-             app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
-             logger.info("Mounted FastMCP SSE application at '/mcp'.")
-             # Assuming internal routes are /sse and /messages/ relative to mount point
-             logger.info("--> Expected SSE connection endpoint: /mcp/sse")
-             logger.info("--> Expected SSE message endpoint: /mcp/messages/")
-        else:
-             logger.error("mcp_instance.sse_app() did not return a valid application to mount.")
-             sys.exit(1)
-
+            app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
+            logger.info("Mounted FastMCP SSE application at '/mcp'.")
+            # Assuming internal routes are /sse and /messages/ relative to mount point
+            logger.info("--> Expected SSE connection endpoint: /mcp/sse")
+            logger.info("--> Expected SSE message endpoint: /mcp/messages/")
+        if not sse_asgi_app:
+            raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
     except AttributeError:
-         logger.error("mcp_instance does not have an 'sse_app' method. Cannot mount SSE.")
-         sys.exit(1)
+        logger.error("mcp_instance does not have an 'sse_app' method. Cannot mount SSE.")
+        sys.exit(1)
     except Exception as e:
         logger.critical(f"Failed to mount FastMCP SSE application: {e}", exc_info=True)
         sys.exit(1)
-
 
     # --- Add Health Check for FastAPI itself (Optional) ---
     @app.get("/_fastapi_health", tags=["Health"])
@@ -110,6 +105,19 @@ def run_http_mode():
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
 
+    # --- Run Uvicorn (This was missing!) ---
+    logger.info(f"Starting Uvicorn server process...")
+    uvicorn.run(
+        app, # Use the app object where routes were configured
+        host=settings.SERVER_HOST,
+        port=settings.SERVER_PORT,
+        log_level=settings.LOG_LEVEL.lower(),
+        # Consider adding reload=True for development if needed,
+        # but ensure the main entry point logic handles it correctly.
+        # reload=settings.ENVIRONMENT == "development"
+    )
+    # Note: uvicorn.run() is blocking, code after it in this function won't run until server stops.
+    
 
 def main_server_runner():
     """Decides which server mode to run."""
