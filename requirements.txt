@@ -1,13 +1,15 @@
-fastapi
-uvicorn[standard]
+fastapi>=0.100.0  # Specify a recent minimum version
+starlette>=0.25.0 # Add starlette explicitly with a recent minimum version
+uvicorn[standard]>=0.20.0 # Good to keep this updated too
 python-dotenv
-SQLAlchemy
+SQLAlchemy>=2.0 # Assuming you need SQLAlchemy 2 features
 alembic
 Jinja2
-starlette-session
+starlette-session # Keep this if you use it
 python-multipart
 pydantic-settings
-sse-starlette
+sse-starlette # Keep this
 aiosqlite
 mcp[cli]
 httpx
+
