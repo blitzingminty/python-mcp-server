@@ -17,7 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project code
 COPY ./src /app/src
 
-# Command to run the application using the main script
-# Configuration (host, port) will be picked up from environment variables via config.py
-#CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--proxy-headers", "--forwarded-allow-ips", "*"]
-CMD ["python", "-m", "src.main"]
+# ---- TEMPORARY DIAGNOSTIC CMD ----
+# This runs diagnostics then attempts to run the app. Check the logs carefully.
+CMD ["sh", "-c", "echo '--- DIAGNOSTICS START ---' && echo 'Python version:' && python --version && echo 'PIP version:' && pip --version && echo '--- PIP LIST ---' && pip list && echo '--- PIP SHOW STARLETTE ---' && pip show starlette && echo '--- SYS.PATH ---' && python -c 'import sys; print(sys.path)' && echo '--- DIAGNOSTICS END ---' && echo '--- RUNNING APP ---' && python -m src.main"]
+
+# ---- ORIGINAL CMD (Comment out the diagnostic one and uncomment this when done) ----
+# CMD ["python", "-m", "src.main"]
