@@ -12,6 +12,7 @@ from fastapi import FastAPI #, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 # --- MCP / SSE Imports ---
 # *** No longer need SseServerTransport, Route, Mount here ***
@@ -48,6 +49,11 @@ app = FastAPI(
 )
 app.state.templates = templates
 
+# --- NEW: Add ProxyHeadersMiddleware ---
+# By default, it trusts X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host
+# Use trusted_hosts="*" for internal/docker setups, refine if needed for production
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+logger.info("Added ProxyHeadersMiddleware (trusted_hosts='*')")
 
 
 # --- Main Application Logic ---
@@ -66,15 +72,12 @@ def run_stdio_mode():
     pass 
 
 def run_http_mode():
-    """Runs the server in HTTP mode using FastAPI mounting FastMCP & WebUI."""
     logger.info(f"Starting server in HTTP mode (FastAPI + FastMCP + WebUI) on {settings.SERVER_HOST}:{settings.SERVER_PORT}...")
 
     # --- Configure Static Files ---
     static_dir = PROJECT_ROOT / "src/static"
     if not static_dir.is_dir():
-        static_dir.mkdir(parents=True, exist_ok=True)
-    # Mount static files *before* including routers that might use them if needed,
-    # although usually order matters more for path matching overlaps.
+         static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     logger.info(f"Static files mounted from {static_dir} at /static")
 
@@ -82,17 +85,14 @@ def run_http_mode():
     logger.info("Including Web UI router at '/ui'...")
     app.include_router(web_ui_router, prefix="/ui", tags=["Web UI"])
 
-    # --- Mount the FastMCP SSE App directly under /mcp ---
+    # --- Mount the FastMCP SSE App ---
     try:
         sse_asgi_app = mcp_instance.sse_app()
         if sse_asgi_app:
-            # Mount MCP app *after* more specific routes like /ui and /static
             app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
             logger.info("Mounted FastMCP SSE application at '/mcp'.")
-            logger.info("--> Expected SSE connection endpoint: /mcp/sse")
-            logger.info("--> Expected SSE message endpoint: /mcp/messages/")
         if not sse_asgi_app:
-            raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
+             raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
     except AttributeError:
         logger.error("mcp_instance does not have an 'sse_app' method. Cannot mount SSE.")
         sys.exit(1)
@@ -100,26 +100,22 @@ def run_http_mode():
         logger.critical(f"Failed to mount FastMCP SSE application: {e}", exc_info=True)
         sys.exit(1)
 
-    # --- Add Health Check for FastAPI itself (Optional) ---
-    # Define routes *before* running uvicorn
+    # --- Add Health Check ---
     @app.get("/_fastapi_health", tags=["Health"])
     async def health_check():
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
 
     # --- Run Uvicorn ---
-    logger.info(f"Starting Uvicorn server process...")
+    logger.info(f"Starting Uvicorn server process (Middleware handles proxy headers)...")
     uvicorn.run(
-        # Pass the app instance string if running uvicorn directly,
-        # or the app object if calling uvicorn.run programmatically.
-        # Since we are inside the script that defines 'app', pass the object.
         app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
-        log_level=settings.LOG_LEVEL.lower(),
-        proxy_headers=True,
-        forwarded_allow_ips='*'
+        log_level=settings.LOG_LEVEL.lower()
+        # --- REMOVED proxy_headers=True and forwarded_allow_ips ---
     )
+
 
 
 def main_server_runner():
