@@ -47,6 +47,21 @@ router = APIRouter()
 async def ui_root(request: Request, db: AsyncSession = Depends(get_db_session)):
     """Serves the main dashboard/index page of the UI with entity counts."""
     logger.info("Web UI root requested")
+
+    # --- TEMPORARY LOGGING ---
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Request Scheme: {request.url.scheme}")
+    logger.info(f"Request Host: {request.url.hostname}")
+    logger.info(f"Request Port: {request.url.port}")
+    logger.info(f"Request Headers: {request.headers}")
+    try:
+        test_url = request.url_for('ui_list_projects')
+        logger.info(f"Generated URL for ui_list_projects: {test_url}")
+    except Exception as e:
+        logger.error(f"Could not generate URL for ui_list_projects: {e}")
+    # --- END TEMPORARY LOGGING ---
+
+
     templates = request.app.state.templates
     if not templates:
         raise HTTPException(status_code=500, detail="Server configuration error")
