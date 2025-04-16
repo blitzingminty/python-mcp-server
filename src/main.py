@@ -105,19 +105,19 @@ def run_http_mode():
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
 
-    # --- Run Uvicorn (This was missing!) ---
+    # --- Run Uvicorn ---
     logger.info(f"Starting Uvicorn server process...")
     uvicorn.run(
         app, # Use the app object where routes were configured
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         log_level=settings.LOG_LEVEL.lower(),
-        # Consider adding reload=True for development if needed,
-        # but ensure the main entry point logic handles it correctly.
-        # reload=settings.ENVIRONMENT == "development"
-    )
-    # Note: uvicorn.run() is blocking, code after it in this function won't run until server stops.
-    
+        # --- ADD THESE LINES ---
+        proxy_headers=True,        # Trust X-Forwarded-Proto/Host/For etc.
+        forwarded_allow_ips='*'    # Trust headers from any proxy IP (adjust if needed)
+        # --- END ADD ---
+    )    # Note: uvicorn.run() is blocking, code after it in this function won't run until server stops.
+
 
 def main_server_runner():
     """Decides which server mode to run."""
