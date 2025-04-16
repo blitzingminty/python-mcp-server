@@ -40,13 +40,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # --- Configure Templates ---
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "src/templates"))
 
-    # --- Create the main FastAPI App ---
-    app = FastAPI(
-        title=settings.PROJECT_NAME + " (HTTP Mode)",
-        version=settings.VERSION,
-        # *** Attach the lifespan from mcp_instance if it exists and handles DB init ***
-        lifespan=getattr(mcp_instance, 'lifespan', None)
-    )
+# --- Create the main FastAPI App ---
+app = FastAPI(
+    title=settings.PROJECT_NAME + " (HTTP Mode)",
+    version=settings.VERSION,
+    # *** Attach the lifespan from mcp_instance if it exists and handles DB init ***
+    lifespan=getattr(mcp_instance, 'lifespan', None)
+)
 
 app.state.templates = templates
 
