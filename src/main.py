@@ -12,7 +12,6 @@ from fastapi import FastAPI #, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 # --- MCP / SSE Imports ---
 # *** No longer need SseServerTransport, Route, Mount here ***
@@ -49,11 +48,6 @@ app = FastAPI(
 )
 app.state.templates = templates
 
-# --- NEW: Add ProxyHeadersMiddleware ---
-# By default, it trusts X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host
-# Use trusted_hosts="*" for internal/docker setups, refine if needed for production
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
-logger.info("Added ProxyHeadersMiddleware (trusted_hosts='*')")
 
 
 # --- Main Application Logic ---
@@ -102,7 +96,7 @@ def run_http_mode():
 
     # --- Add Health Check ---
     @app.get("/_fastapi_health", tags=["Health"])
-    async def health_check():
+    async def health_check(): # type: ignore
         logger.info("FastAPI health check requested")
         return {"status": "ok", "message": "FastAPI wrapper is running"}
 
