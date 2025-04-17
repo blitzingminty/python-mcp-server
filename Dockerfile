@@ -1,5 +1,5 @@
 # --- MODIFIED: Use non-slim base image ---
-    FROM python:3.11
+    FROM python:3.12
 
     # Set environment variables
     ENV PYTHONDONTWRITEBYTECODE 1
@@ -28,4 +28,3 @@
     
     # --- FINAL CMD ---
     CMD ["python", "-m", "src.main"]
-    
