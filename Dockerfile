@@ -18,7 +18,7 @@ RUN rm -rf /root/.cache/pip && pip install --no-cache-dir -r requirements.txt
 # Copy project code
 COPY ./src /app/src
 
-# --- NEW: Clean .pyc files ---
+# Clean .pyc files
 RUN find /app -name "*.pyc" -delete
 
 # --- MODIFIED TEMPORARY DIAGNOSTIC CMD ---
