@@ -12,22 +12,15 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-# Keep clear cache and Force Reinstall
+# --- MODIFIED: Force install FROM SOURCE ---
 RUN rm -rf /root/.cache/pip && \
-    pip install --no-cache-dir --force-reinstall -r requirements.txt
+    pip install --no-cache-dir --force-reinstall --no-binary :all: -r requirements.txt
 
 # Copy project code
 COPY ./src /app/src
 
-# Clean .pyc files
-RUN find /app -name "*.pyc" -delete
+# Clean .pyc files (Optional but can leave it for now)
+# RUN find /app -name "*.pyc" -delete
 
-# --- Keep diagnostic CMD that lists middleware dir ---
-CMD ["sh", "-c", "echo '--- DIAGNOSTICS START ---' && \
-# ... (rest of diagnostic commands including ls) ...
-echo '--- LS /usr/local/lib/python3.11/site-packages/starlette/middleware/ ---' && ls -la /usr/local/lib/python3.11/site-packages/starlette/middleware/ && \
-echo '--- DIAGNOSTICS END ---' && \
-echo '--- RUNNING APP ---' && python -m src.main"]
-
-# ---- ORIGINAL CMD (Comment out the diagnostic one and uncomment this when done) ----
-# CMD ["python", "-m", "src.main"]
+# --- REVERTED FINAL CMD ---
+CMD ["python", "-m", "src.main"]
