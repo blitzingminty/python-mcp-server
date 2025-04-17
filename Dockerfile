@@ -12,7 +12,8 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-# --- MODIFIED: Clear cache before install ---
+# --- CORRECTED: Comment moved before RUN ---
+# Clear pip cache before install
 RUN rm -rf /root/.cache/pip && \
     pip install --no-cache-dir -r requirements.txt
 
