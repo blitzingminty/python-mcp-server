@@ -1,4 +1,4 @@
-# FINAL ATTEMPT: Simplest possible install on non-slim image
+# Use standard non-slim base image
 FROM python:3.11
 
 # Set environment variables
@@ -10,12 +10,12 @@ ENV SERVER_PORT=8000
 # Set work directory
 WORKDIR /app
 
-# DO NOT ADD any 'RUN apt-get install ...' lines here
+# Remove apt-get install line if it was present
 
-# Install Python dependencies (standard install, allowing wheels)
+# Install Python dependencies using uv
 COPY requirements.txt .
-# Simplest pip install command
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir uv && \
+    uv pip install --system --no-cache -r requirements.txt
 
 # Copy project code
 COPY ./src /app/src
