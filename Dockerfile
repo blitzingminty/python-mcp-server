@@ -5,30 +5,19 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONPATH /app
+ENV SERVER_PORT=8000 # Keep default port
 
 # Set work directory
 WORKDIR /app
 
 # Install dependencies
-# Copy only requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --- MODIFIED: Clear cache before install ---
+RUN rm -rf /root/.cache/pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy project code
 COPY ./src /app/src
 
-# ---- TEMPORARY DIAGNOSTIC CMD - ADDED LS FOR SPECIFIC DIR ----
-CMD ["sh", "-c", "echo '--- DIAGNOSTICS START ---' && \
-echo 'Python version:' && python --version && \
-echo 'PIP version:' && pip --version && \
-echo '--- PIP LIST ---' && pip list && \
-echo '--- PIP SHOW STARLETTE ---' && pip show starlette && \
-echo '--- SYS.PATH ---' && python -c 'import sys; print(sys.path)' && \
-echo '--- LS /app ---' && ls -la /app && \
-echo '--- LS /app/src ---' && ls -la /app/src && \
-echo '--- LS /usr/local/lib/python3.11/site-packages/starlette/middleware/ ---' && ls -la /usr/local/lib/python3.11/site-packages/starlette/middleware/ && \
-echo '--- DIAGNOSTICS END ---' && \
-echo '--- RUNNING APP ---' && python -m src.main"]
-
-# ---- ORIGINAL CMD (Comment out the diagnostic one and uncomment this when done) ----
-# CMD ["python", "-m", "src.main"]
+# --- REVERTED CMD ---
+CMD ["python", "-m", "src.main"]
