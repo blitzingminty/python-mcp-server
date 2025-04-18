@@ -19,7 +19,7 @@ from pathlib import Path
 
 # --- Project Imports ---
 from .config import settings
-from .mcp_server_instance import mcp_instance, app_lifespan
+from .mcp_server_lifespan import mcp_instance, fastapi_lifespan as app_lifespan
 from .web_routes import router as web_ui_router
 
 # --- Logging Setup ---

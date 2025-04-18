@@ -1,113 +1,71 @@
-# Implementation Plan: Fix `app_lifespan` Lifespan Error for FastAPI Compatibility
+# Implementation Plan: Fix `app_lifespan` Lifespan Error for FastAPI Compatibility (Updated for Modular Approach)
 
 ## Background
-The current `app_lifespan` function in `src/mcp_server_instance.py` is designed as an async context manager that takes a `FastMCP` instance and yields a dictionary with context data. However, FastAPI expects the lifespan function to accept a `FastAPI` instance and yield `None` (or an async context manager compatible with FastAPI's lifespan protocol). This mismatch causes type errors in Pylance and may cause runtime issues.
+The current `app_lifespan` function was designed as an async context manager that takes a `FastMCP` instance and yields a dictionary with context data. FastAPI expects the lifespan function to accept a `FastAPI` instance and yield `None` (or an async context manager compatible with FastAPI's lifespan protocol). This mismatch causes type errors and runtime issues.
+
+With the new modular structure, lifespan management and MCP server lifecycle are separated into different modules.
 
 ---
 
 ## Goal
-Refactor the lifespan management to be compatible with FastAPI's expected lifespan signature while preserving the existing functionality for FastMCP.
+Refactor lifespan management to be compatible with FastAPI's expected lifespan signature while preserving MCP server lifecycle management, reflecting the new modular file structure.
 
 ---
 
 ## Proposed Changes
 
-### 1. Refactor `app_lifespan` to `fastapi_lifespan`
+### 1. Create Two Separate Lifespan Functions in `src/mcp_server_lifespan.py`
 
-- Change the argument to accept a `FastAPI` instance.
-- Yield `None` instead of a dictionary.
-- Move any context data (e.g., `AsyncSessionFactory`) to `app.state` for access elsewhere.
-- Keep the database initialization logic intact.
-- This function will be passed to FastAPI's `lifespan` parameter.
+- `fastapi_lifespan`:
+  - Accepts a `FastAPI` instance.
+  - Yields `None`.
+  - Performs database initialization.
+  - Stores `AsyncSessionFactory` in `app.state` for access in routes and tools.
+  - Passed to FastAPI app's `lifespan` parameter.
 
-**Code Example:**
+- `mcp_lifespan`:
+  - Accepts a `FastMCP` instance.
+  - Yields a context dictionary with `db_session_factory`.
+  - Passed to `FastMCP` constructor.
 
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+### 2. Update `src/main.py`
 
-@asynccontextmanager
-async def fastapi_lifespan(app: FastAPI):
-    # Database initialization logic here (same as current)
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as e:
-        # Log error, decide on behavior
-        pass
+- Import and use `fastapi_lifespan` for FastAPI app lifespan.
+- Import `mcp_lifespan` for MCP server instance.
+- Adjust code to access session factory from `app.state` in FastAPI routes and from MCP context in MCP tools.
 
-    # Store session factory in app.state for access in routes/tools
-    app.state.db_session_factory = AsyncSessionFactory
+### 3. Adjust MCP Tools and Helper Functions
 
-    yield
+- For FastAPI routes, retrieve session factory from `app.state.db_session_factory`.
+- For MCP tools, continue using MCP lifespan context.
+- Update imports and references to reflect modular helper files.
 
-    # Optional cleanup logic here
-```
+### 4. Testing and Validation
 
----
-
-### 2. Adapt MCP Instance Creation
-
-- Create a separate lifespan function for FastMCP that matches its expected signature (taking `FastMCP` instance and yielding context dictionary).
-- Pass this MCP-specific lifespan function to the `FastMCP` constructor.
-- This keeps MCP lifecycle management separate from FastAPI's.
-
-**Code Example:**
-
-```python
-@asynccontextmanager
-async def mcp_lifespan(server: FastMCP):
-    # Same as current app_lifespan implementation
-    # Yield context dictionary with session factory
-    context_data = {"db_session_factory": AsyncSessionFactory}
-    yield context_data
-```
+- Test both FastAPI HTTP mode and MCP STDIO mode.
+- Ensure database initialization and session management work correctly.
+- Confirm no lifespan-related type errors.
+- Verify context data accessibility.
 
 ---
 
-### 3. Update `src/main.py` to Use `fastapi_lifespan`
+## Summary of File Changes
 
-- Import and use `fastapi_lifespan` as the lifespan argument when creating the FastAPI app.
-- Access the session factory in routes/tools via `request.app.state.db_session_factory` or equivalent.
-
----
-
-### 4. Update MCP Tools and Context Access
-
-- Modify MCP tools and helper functions to retrieve the session factory from the appropriate context.
-- For FastAPI routes, use `app.state.db_session_factory`.
-- For MCP tools, continue using the MCP lifespan context as before.
+| File                  | Description                                      |
+|-----------------------|-------------------------------------------------|
+| `src/mcp_server_lifespan.py` | Add `fastapi_lifespan` and `mcp_lifespan` functions |
+| `src/main.py`         | Use `fastapi_lifespan` for FastAPI app lifespan |
+| MCP tools/helpers     | Adjust context/session factory access accordingly |
 
 ---
 
-### 5. Testing and Validation
+## Next Steps
 
-- Test both FastAPI HTTP mode and MCP STDIO mode to ensure database initialization and session management work correctly.
-- Validate no type errors remain related to lifespan.
-- Confirm that context data is accessible where needed.
-
----
-
-## Summary
-
-| File                 | Change Description                                      |
-|----------------------|---------------------------------------------------------|
-| `src/mcp_server_instance.py` | Split lifespan into `mcp_lifespan` and `fastapi_lifespan` functions |
-| `src/main.py`        | Use `fastapi_lifespan` for FastAPI app lifespan          |
-| MCP tools/helpers    | Adjust context/session factory access accordingly        |
-
----
-
-This plan ensures compatibility with FastAPI's lifespan protocol while preserving MCP server lifecycle management and database initialization.
-
----
-
-**Next Steps:**
-
-- Implement the above changes.
+- Implement the above changes in the respective modules.
 - Test thoroughly.
-- Address any further issues.
+- Remove any legacy lifespan code from old files.
+- Ensure all references are updated to the modular structure.
 
 ---
 
-**This plan is saved for future reference.**
+**This updated plan is saved for future reference.**

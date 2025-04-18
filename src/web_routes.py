@@ -2,41 +2,44 @@
 
 import logging
 # import httpx # Commented out as likely unused now
-from typing import Any, Dict, Optional
+from typing import Optional, Dict, Union, Any
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func # Needed for counts
-from .database import get_db_session, AsyncSessionFactory # Import factory for checks
-from .models import Document, Project, MemoryEntry, DocumentVersion, MemoryEntryRelation # Added MemoryEntryRelation
+from .database import get_db_session # Removed unused AsyncSessionFactory
+from .models import Document, Project, MemoryEntry, MemoryEntryRelation # , DocumentVersion
 from sqlalchemy.exc import SQLAlchemyError
 from urllib.parse import quote_plus
 
 # --- Import all necessary DB helpers ---
-from .mcp_server_instance import (
-    _create_project_in_db, _update_project_in_db, _delete_project_in_db,
-    _set_active_project_in_db, _add_document_in_db, _update_document_in_db,
-    _delete_document_in_db,
-    _add_tag_to_document_db,
-    _remove_tag_from_document_db,
-    _get_document_version_content_db,
-    _add_document_version_db, # Added in Phase 5
-    _get_memory_entry_db,
-    _add_memory_entry_db,
-    _update_memory_entry_db,
-    _delete_memory_entry_db,
-    _add_tag_to_memory_entry_db,
-    _remove_tag_from_memory_entry_db
-    # TODO: Add/confirm imports for link/unlink helpers if they exist, otherwise use direct logic below
-    # link_memory_entry_to_document, # Example if helper exists
-    # unlink_memory_entry_from_document, # Example if helper exists
+from .mcp_db_helpers_project import create_project_in_db, update_project_in_db, delete_project_in_db, set_active_project_in_db
+from .mcp_db_helpers_document import (
+    add_document_in_db,
+    update_document_in_db,
+    delete_document_in_db,
+    add_tag_to_document_db,
+    remove_tag_from_document_db,
+    add_document_version_db,
+    get_document_version_content_db
 )
+from .mcp_db_helpers_memory import (
+    get_memory_entry_db,
+    add_memory_entry_db,
+    update_memory_entry_db,
+    delete_memory_entry_db,
+    add_tag_to_memory_entry_db,
+    remove_tag_from_memory_entry_db
+)
+# TODO: Add/confirm imports for link/unlink helpers if they exist, otherwise use direct logic below
+# link_memory_entry_to_document, # Example if helper exists
+# unlink_memory_entry_from_document, # Example if helper exists
+
+# Removed duplicate private imports of mcp_db_helpers_memory to avoid conflicts and Pylance errors
 
 
-# --- Add config import for port ---
-from .config import settings
 # --- End Add ---
 
 logger = logging.getLogger(__name__)
@@ -90,7 +93,7 @@ async def ui_root(request: Request, db: AsyncSession = Depends(get_db_session)):
         document_count = 'N/A'
         memory_entry_count = 'N/A'
 
-    context_data = {
+    context_data: Dict[str, Union[int, str, None]] = {
         "page_title": "MCP Server Dashboard",
         "welcome_message": "Welcome to the MCP Server Maintenance UI!",
         "project_count": project_count,
@@ -119,7 +122,7 @@ async def list_projects_web(request: Request, db: AsyncSession = Depends(get_db_
     except Exception as e:
         logger.error(f"Failed to fetch projects for web UI: {e}", exc_info=True)
         error_message = f"Error fetching projects: {e}"
-    context_data = {"page_title": "Projects List", "projects": projects, "error": error_message}
+    context_data: Dict[str, Any] = {"page_title": "Projects List", "projects": projects, "error": error_message}
     return templates.TemplateResponse("projects.html", {"request": request, "data": context_data})
 
 @router.get("/projects/new", response_class=HTMLResponse, name="ui_new_project")
@@ -128,7 +131,7 @@ async def new_project_form(request: Request):
     logger.info("Web UI new project form requested")
     templates = request.app.state.templates
     if not templates: raise HTTPException(status_code=500, detail="Server configuration error")
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": "Create New Project",
         "form_action": request.url_for('ui_create_project'),
         "error": request.query_params.get("error"),
@@ -144,7 +147,7 @@ async def edit_project_form(project_id: int, request: Request, db: AsyncSession 
     if not templates: raise HTTPException(status_code=500, detail="Server configuration error")
     project = await db.get(Project, project_id)
     if project is None: raise HTTPException(status_code=404, detail=f"Project with ID {project_id} not found")
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": f"Edit Project: {project.name}",
         "form_action": request.url_for('ui_update_project', project_id=project_id),
         "cancel_url": request.url_for('ui_view_project', project_id=project_id),
@@ -166,7 +169,7 @@ async def create_project_web(
     created_project = None
     try:
         async with db.begin():
-             created_project = await _create_project_in_db(
+             created_project = await create_project_in_db(
                  session=db, name=name, path=path, description=description if description else None, is_active=is_active
              )
         if created_project: new_project_id = created_project.id; logger.info(f"Project created directly via web route, ID: {new_project_id}")
@@ -194,7 +197,7 @@ async def view_project_web(project_id: int, request: Request, db: AsyncSession =
     except SQLAlchemyError as e: error_message = error_message or f"Database error fetching project details: {e}"; logger.error(f"Database error fetching project {project_id} for web UI: {e}", exc_info=True); raise HTTPException(status_code=500, detail=error_message)
     except HTTPException: raise
     except Exception as e: error_message = error_message or f"An unexpected server error occurred: {e}"; logger.error(f"Unexpected error fetching project {project_id} for web UI: {e}", exc_info=True); raise HTTPException(status_code=500, detail=error_message)
-    context_data = {"page_title": f"Project: {project.name}" if project else "Project Not Found", "project": project, "error": error_message}
+    context_data: Dict[str, Any] = {"page_title": f"Project: {project.name}" if project else "Project Not Found", "project": project, "error": error_message}
     return templates.TemplateResponse("project_detail.html", {"request": request, "data": context_data})
 
 @router.post("/projects/{project_id}/edit", name="ui_update_project")
@@ -208,7 +211,7 @@ async def update_project_web(
     updated_project = None
     try:
         async with db.begin():
-             updated_project = await _update_project_in_db(session=db, project_id=project_id, name=name, path=path, description=description if description else None, is_active=is_active)
+             updated_project = await update_project_in_db(session=db, project_id=project_id, name=name, path=path, description=description if description else None, is_active=is_active)
         if updated_project is None: error_message = f"Project with ID {project_id} not found."; logger.warning(f"Update failed via web route: {error_message}")
         else: logger.info(f"Project {project_id} updated successfully via web route.")
     except SQLAlchemyError as e: error_message = f"Database error updating project: {e}"; logger.error(f"Database error updating project {project_id} via web route: {e}", exc_info=True)
@@ -223,7 +226,7 @@ async def delete_project_web(project_id: int, request: Request, db: AsyncSession
     error_message = None
     try:
         async with db.begin():
-            deleted = await _delete_project_in_db(session=db, project_id=project_id)
+            deleted = await delete_project_in_db(session=db, project_id=project_id)
             if not deleted: error_message = f"Failed to delete project {project_id} (DB error)."; logger.error(f"{error_message} (Helper returned False)"); raise SQLAlchemyError(error_message)
         logger.info(f"Project {project_id} deleted successfully via web route.")
     except SQLAlchemyError as e: error_message = error_message or f"Database error deleting project {project_id}: {e}"; logger.error(error_message, exc_info=True)
@@ -239,7 +242,7 @@ async def activate_project_web(project_id: int, request: Request, db: AsyncSessi
     error_message = None
     try:
         async with db.begin():
-            activated_project = await _set_active_project_in_db(session=db, project_id=project_id)
+            activated_project = await set_active_project_in_db(session=db, project_id=project_id)
             if activated_project is None: error_message = f"Project {project_id} not found to activate."; logger.warning(error_message); raise ValueError(error_message)
         logger.info(f"Project {project_id} activated successfully via web route.")
     except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error activating project {project_id}: {e}"; logger.error(error_message, exc_info=True)
@@ -264,7 +267,7 @@ async def list_all_documents_web(request: Request, db: AsyncSession = Depends(ge
         logger.info(f"Found {len(documents)} total documents.")
     except SQLAlchemyError as e: error_message = error_message or f"Database error fetching documents: {e}"; logger.error(f"Database error fetching all documents: {e}", exc_info=True)
     except Exception as e: error_message = error_message or f"Unexpected server error: {e}"; logger.error(f"Unexpected error fetching all documents: {e}", exc_info=True)
-    context_data = {"page_title": "All Documents", "documents": documents, "error": error_message}
+    context_data: Dict[str, Any] = {"page_title": "All Documents", "documents": documents, "error": error_message}
     return templates.TemplateResponse("documents_list.html", {"request": request, "data": context_data})
 
 @router.get("/documents/{doc_id}", response_class=HTMLResponse, name="ui_view_document")
@@ -284,7 +287,7 @@ async def view_document_web(doc_id: int, request: Request, db: AsyncSession = De
     except SQLAlchemyError as e: error_message = error_message or f"Error fetching document details: {e}"; logger.error(f"Database error fetching document {doc_id}: {e}", exc_info=True); raise HTTPException(status_code=500, detail="Database error fetching document details.")
     except HTTPException: raise
     except Exception as e: error_message = error_message or f"Unexpected server error: {e}"; logger.error(f"Unexpected error fetching document {doc_id}: {e}", exc_info=True); raise HTTPException(status_code=500, detail="Unexpected server error.")
-    context_data = {"page_title": f"Document: {document.name}" if document else "Document Not Found", "document": document, "error": error_message}
+    context_data: Dict[str, Any] = {"page_title": f"Document: {document.name}" if document else "Document Not Found", "document": document, "error": error_message}
     return templates.TemplateResponse("document_detail.html", {"request": request, "data": context_data})
 
 @router.get("/projects/{project_id}/documents/new", response_class=HTMLResponse, name="ui_new_document")
@@ -293,7 +296,7 @@ async def new_document_form(project_id: int, request: Request):
     logger.info(f"Web UI new document form requested for project ID: {project_id}")
     templates = request.app.state.templates
     if not templates: raise HTTPException(status_code=500, detail="Server configuration error")
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": "Add New Document",
         "form_action": request.url_for('ui_create_document', project_id=project_id),
         "cancel_url": request.url_for('ui_view_project', project_id=project_id),
@@ -310,19 +313,40 @@ async def create_document_web(
     """Handles the submission of the new document form."""
     logger.info(f"Web UI create_document form submitted for project {project_id}: name='{name}'")
     error_message = None; new_document_id = None; added_document = None
+    redirect_url_on_error = str(request.url_for('ui_new_document', project_id=project_id))
+
+    # --- Pre-check if project exists ---
+    project = await db.get(Project, project_id)
+    if project is None:
+        error_message = f"Project with ID {project_id} not found."
+        logger.warning(error_message)
+        error_param = f"?error={quote_plus(error_message)}"
+        return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
+
     try:
         async with db.begin():
-            added_document = await _add_document_in_db(session=db, project_id=project_id, name=name, path=path, content=content, type=type, version=version if version else "1.0.0")
+            added_document = await add_document_in_db(session=db, project_id=project_id, name=name, path=path, content=content, type=type, version=version if version else "1.0.0")
+            # If helper returns None now, it implies a DB issue within the helper, not a missing project
             if added_document is None:
-                async with AsyncSessionFactory() as check_session: project = await check_session.get(Project, project_id)
-                error_message = f"Project with ID {project_id} not found." if project is None else "Database error adding document."
-                logger.warning(f"Add document failed: {error_message}") if project is None else logger.error(f"Add document failed: {error_message}")
-                raise ValueError(error_message)
-        new_document_id = added_document.id; logger.info(f"Document created directly via web route, ID: {new_document_id}")
-    except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error adding document: {e}"; logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
-    except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
-    if new_document_id is not None: return RedirectResponse(request.url_for('ui_view_document', doc_id=new_document_id), status_code=303)
-    else: error_param = f"?error={quote_plus(error_message or 'Unknown error adding document.')}"; return RedirectResponse(str(request.url_for('ui_new_document', project_id=project_id)) + error_param, status_code=303)
+                error_message = "Database error adding document (helper returned None)."
+                logger.error(f"Add document failed: {error_message}")
+                raise ValueError(error_message) # Raise to trigger rollback and outer handler
+
+        new_document_id = added_document.id
+        logger.info(f"Document created directly via web route, ID: {new_document_id}")
+    except (SQLAlchemyError, ValueError) as e: # Catches ValueError raised above
+        error_message = error_message or f"Error adding document: {e}"
+        logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
+    except Exception as e:
+        error_message = f"An unexpected error occurred: {e}"
+        logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
+
+    # --- Redirect logic ---
+    if new_document_id is not None and error_message is None:
+        return RedirectResponse(request.url_for('ui_view_document', doc_id=new_document_id), status_code=303)
+    else:
+        error_param = f"?error={quote_plus(error_message or 'Unknown error adding document.')}"
+        return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
 
 @router.get("/documents/{doc_id}/edit", response_class=HTMLResponse, name="ui_edit_document")
 async def edit_document_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
@@ -350,7 +374,7 @@ async def update_document_web(
     error_message = None; updated_document = None
     try:
         async with db.begin():
-             updated_document = await _update_document_in_db(session=db, document_id=doc_id, name=name, path=path, type=type)
+             updated_document = await update_document_in_db(session=db, document_id=doc_id, name=name, path=path, type=type)
              if updated_document is None: error_message = f"Document with ID {doc_id} not found."; logger.warning(f"Update failed: {error_message}"); raise ValueError(error_message)
         logger.info(f"Document {doc_id} metadata updated successfully via web route.")
     except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Database error updating document: {e}"; logger.error(f"Error updating document {doc_id} via web: {e}", exc_info=True)
@@ -368,7 +392,7 @@ async def delete_document_web(doc_id: int, request: Request, db: AsyncSession = 
         if doc_to_delete:
             project_id_to_redirect = doc_to_delete.project_id; logger.debug(f"Document {doc_id} belongs to project {project_id_to_redirect}. Attempting delete.")
             async with db.begin():
-                deleted = await _delete_document_in_db(session=db, document_id=doc_id)
+                deleted = await delete_document_in_db(session=db, document_id=doc_id)
                 if not deleted: error_message = f"Failed to delete document {doc_id} (DB error)."; logger.error(f"{error_message} (Helper returned False)"); raise SQLAlchemyError(error_message)
             logger.info(f"Document {doc_id} committed for deletion via web route.")
         else: logger.warning(f"Document {doc_id} not found for deletion. Assuming success for redirect.")
@@ -385,20 +409,38 @@ async def add_tag_to_document_web(
     """Handles adding a tag to a document via web form."""
     logger.info(f"Web UI add tag '{tag_name}' request for document ID: {doc_id}")
     error_message = None
-    if not tag_name or tag_name.isspace(): error_message = "Tag name cannot be empty."
+    redirect_url = request.url_for('ui_view_document', doc_id=doc_id)
+
+    # --- Pre-check if document exists ---
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        error_message = f"Document {doc_id} not found."
+        logger.warning(error_message)
+        redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
+        return RedirectResponse(redirect_url, status_code=303)
+
+    if not tag_name or tag_name.isspace():
+        error_message = "Tag name cannot be empty."
     else:
         try:
             async with db.begin():
-                success = await _add_tag_to_document_db(session=db, document_id=doc_id, tag_name=tag_name.strip())
+                success = await add_tag_to_document_db(session=db, document_id=doc_id, tag_name=tag_name.strip())
                 if not success:
-                    async with AsyncSessionFactory() as check_session: doc = await check_session.get(Document, doc_id)
-                    error_message = f"Document {doc_id} not found." if doc is None else f"Failed to add tag '{tag_name}' (DB error)."
-                    logger.error(f"{error_message} (_add_tag_to_document_db returned False)"); raise ValueError(error_message)
+                    # We know the doc exists from the check above, so failure means DB error in helper
+                    error_message = f"Failed to add tag '{tag_name}' (DB error)."
+                    logger.error(f"{error_message} (add_tag_to_document_db returned False)")
+                    raise ValueError(error_message) # Raise to trigger rollback and outer handler
             logger.info(f"Tag '{tag_name}' added/associated with document {doc_id} via web.")
-        except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error adding tag: {e}"; logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
-        except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
-    redirect_url = request.url_for('ui_view_document', doc_id=doc_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
+        except (SQLAlchemyError, ValueError) as e: # Catches ValueError raised above
+            error_message = error_message or f"Error adding tag: {e}"
+            logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
+        except Exception as e:
+            error_message = f"An unexpected error occurred: {e}"
+            logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
+
+    # --- Redirect logic ---
+    if error_message:
+        redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
 @router.post("/documents/{doc_id}/tags/remove", name="ui_remove_tag_from_document")
@@ -412,13 +454,13 @@ async def remove_tag_from_document_web(
     else:
         try:
             async with db.begin():
-                success = await _remove_tag_from_document_db(session=db, document_id=doc_id, tag_name=tag_name)
+                success = await remove_tag_from_document_db(session=db, document_id=doc_id, tag_name=tag_name)
                 if not success: error_message = f"Failed to remove tag '{tag_name}' due to database error."; raise SQLAlchemyError(error_message)
             logger.info(f"Tag '{tag_name}' removed/disassociated from document {doc_id} via web.")
         except SQLAlchemyError as e: error_message = error_message or f"Database error removing tag: {e}"; logger.error(f"Error removing tag '{tag_name}' from doc {doc_id} via web: {e}", exc_info=True)
         except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error removing tag '{tag_name}' from doc {doc_id} via web: {e}", exc_info=True)
     redirect_url = request.url_for('ui_view_document', doc_id=doc_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
+    if error_message: redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
 @router.get("/versions/{version_id}", response_class=HTMLResponse, name="ui_view_version")
@@ -429,7 +471,7 @@ async def view_document_version_web(version_id: int, request: Request, db: Async
     if not templates: raise HTTPException(status_code=500, detail="Server configuration error")
     version = None; error_message = None
     try:
-        version = await _get_document_version_content_db(session=db, version_id=version_id)
+        version = await get_document_version_content_db(session=db, version_id=version_id)
         if version is None: error_message = f"Document Version with ID {version_id} not found."; logger.warning(error_message); raise HTTPException(status_code=404, detail=error_message)
         else: logger.info(f"Found document version '{version.version}' (ID: {version_id}) for doc ID {version.document_id}")
     except SQLAlchemyError as e: error_message = f"Error fetching document version details: {e}"; logger.error(f"Database error fetching document version {version_id}: {e}", exc_info=True); raise HTTPException(status_code=500, detail="Database error fetching version details.")
@@ -467,7 +509,7 @@ async def create_document_version_web(
     if error_message: error_param = f"?error={quote_plus(error_message)}"; return RedirectResponse(str(request.url_for('ui_new_version_form', doc_id=doc_id)) + error_param, status_code=303)
     try:
         async with db.begin():
-            updated_doc, new_version = await _add_document_version_db(session=db, document_id=doc_id, content=content, version_string=version_string.strip())
+            updated_doc, new_version = await add_document_version_db(session=db, document_id=doc_id, content=content, version_string=version_string.strip())
             if updated_doc is None or new_version is None: error_message = f"Failed to add version '{version_string}'. Document {doc_id} not found or DB error occurred."; logger.error(f"Create version failed: {error_message}"); raise ValueError(error_message)
         logger.info(f"Version '{new_version.version}' (ID: {new_version.id}) created for document {doc_id} via web.")
     except ValueError as ve: error_message = str(ve); logger.warning(f"Validation error creating version for doc {doc_id}: {error_message}", exc_info=False) # Don't need full stack for validation error
@@ -491,7 +533,7 @@ async def list_all_memory_entries_web(request: Request, db: AsyncSession = Depen
         memory_entries = result.scalars().all(); logger.info(f"Found {len(memory_entries)} total memory entries.")
     except SQLAlchemyError as e: error_message = error_message or f"Database error fetching entries: {e}"; logger.error(f"Database error fetching all memory entries: {e}", exc_info=True)
     except Exception as e: error_message = error_message or f"Unexpected server error: {e}"; logger.error(f"Unexpected error fetching all memory entries: {e}", exc_info=True)
-    context_data = {"page_title": "All Memory Entries", "memory_entries": memory_entries, "error": error_message}
+    context_data: Dict[str, Any] = {"page_title": "All Memory Entries", "memory_entries": memory_entries, "error": error_message}
     return templates.TemplateResponse("memory_entries_list.html", {"request": request, "data": context_data})
 
 # Replace existing view_memory_entry_web function
@@ -511,7 +553,7 @@ async def view_memory_entry_web(
     available_memory_entries = [] # Initialize available memory entries list
 
     try:
-        entry = await _get_memory_entry_db(session=db, entry_id=entry_id)
+        entry = await get_memory_entry_db(session=db, entry_id=entry_id)
         if entry is None:
             error_message = f"Memory Entry with ID {entry_id} not found."
             raise HTTPException(status_code=404, detail=error_message)
@@ -592,18 +634,40 @@ async def create_memory_entry_web(
     """Handles submission of the new memory entry form."""
     logger.info(f"Web UI create memory entry submitted for project {project_id}: title='{title}'")
     error_message = None; new_entry = None; new_entry_id = None
+    redirect_url_on_error = str(request.url_for('ui_new_memory_entry', project_id=project_id))
+
+    # --- Pre-check if project exists ---
+    project = await db.get(Project, project_id)
+    if project is None:
+        error_message = f"Project with ID {project_id} not found."
+        logger.warning(error_message)
+        error_param = f"?error={quote_plus(error_message)}"
+        return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
+
     try:
         async with db.begin():
-            new_entry = await _add_memory_entry_db(session=db, project_id=project_id, title=title, type=type, content=content)
+            new_entry = await add_memory_entry_db(session=db, project_id=project_id, title=title, type=type, content=content)
+            # If helper returns None now, it implies a DB issue within the helper, not a missing project
             if new_entry is None:
-                async with AsyncSessionFactory() as check_session: project = await check_session.get(Project, project_id)
-                error_message = f"Project with ID {project_id} not found." if project is None else "Database error adding memory entry."
-                raise ValueError(error_message)
-        new_entry_id = new_entry.id; logger.info(f"Memory entry created via web route, ID: {new_entry_id}")
-    except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error adding memory entry: {e}"; logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
-    except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
-    if new_entry_id is not None: return RedirectResponse(request.url_for('ui_view_memory_entry', entry_id=new_entry_id), status_code=303)
-    else: error_param = f"?error={quote_plus(error_message or 'Unknown error adding memory entry.')}"; return RedirectResponse(str(request.url_for('ui_new_memory_entry', project_id=project_id)) + error_param, status_code=303)
+                error_message = "Database error adding memory entry (helper returned None)."
+                logger.error(f"Add memory entry failed: {error_message}")
+                raise ValueError(error_message) # Raise to trigger rollback and outer handler
+
+        new_entry_id = new_entry.id
+        logger.info(f"Memory entry created via web route, ID: {new_entry_id}")
+    except (SQLAlchemyError, ValueError) as e: # Catches ValueError raised above
+        error_message = error_message or f"Error adding memory entry: {e}"
+        logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
+    except Exception as e:
+        error_message = f"An unexpected error occurred: {e}"
+        logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
+
+    # --- Redirect logic ---
+    if new_entry_id is not None and error_message is None:
+        return RedirectResponse(request.url_for('ui_view_memory_entry', entry_id=new_entry_id), status_code=303)
+    else:
+        error_param = f"?error={quote_plus(error_message or 'Unknown error adding memory entry.')}"
+        return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
 
 @router.get("/memory/{entry_id}/edit", response_class=HTMLResponse, name="ui_edit_memory_entry")
 async def edit_memory_entry_form(entry_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
@@ -631,7 +695,7 @@ async def update_memory_entry_web(
     error_message = None; updated_entry = None
     try:
         async with db.begin():
-            updated_entry = await _update_memory_entry_db(session=db, entry_id=entry_id, title=title, type=type, content=content)
+            updated_entry = await update_memory_entry_db(session=db, entry_id=entry_id, title=title, type=type, content=content)
             if updated_entry is None: error_message = f"Memory Entry with ID {entry_id} not found."; logger.warning(f"Update failed: {error_message}"); raise ValueError(error_message)
         logger.info(f"Memory entry {entry_id} updated successfully via web route.")
     except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Database error updating memory entry: {e}"; logger.error(f"Error updating memory entry {entry_id} via web: {e}", exc_info=True)
@@ -646,7 +710,7 @@ async def delete_memory_entry_web(entry_id: int, request: Request, db: AsyncSess
     error_message = None; project_id_to_redirect = None
     try:
         async with db.begin():
-            deleted, project_id = await _delete_memory_entry_db(session=db, entry_id=entry_id)
+            deleted, project_id = await delete_memory_entry_db(session=db, entry_id=entry_id)
             project_id_to_redirect = project_id
             if not deleted:
                 error_message = f"Memory Entry {entry_id} not found." if project_id is None else f"Database error deleting memory entry {entry_id}."
@@ -665,20 +729,38 @@ async def add_tag_to_memory_entry_web(
     """Handles adding a tag to a memory entry."""
     logger.info(f"Web UI add tag '{tag_name}' request for memory entry ID: {entry_id}")
     error_message = None
-    if not tag_name or tag_name.isspace(): error_message = "Tag name cannot be empty."
+    redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
+
+    # --- Pre-check if memory entry exists ---
+    entry = await db.get(MemoryEntry, entry_id)
+    if entry is None:
+        error_message = f"Memory Entry {entry_id} not found."
+        logger.warning(error_message)
+        redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
+        return RedirectResponse(redirect_url, status_code=303)
+
+    if not tag_name or tag_name.isspace():
+        error_message = "Tag name cannot be empty."
     else:
         try:
             async with db.begin():
-                success = await _add_tag_to_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name.strip())
+                success = await add_tag_to_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name.strip())
                 if not success:
-                    async with AsyncSessionFactory() as check_session: entry = await check_session.get(MemoryEntry, entry_id)
-                    error_message = f"Memory Entry {entry_id} not found." if entry is None else f"Failed to add tag '{tag_name}' (DB error)."
-                    logger.error(f"{error_message} (_add_tag_to_memory_entry_db returned False)"); raise ValueError(error_message)
+                    # We know the entry exists from the check above, so failure means DB error in helper
+                    error_message = f"Failed to add tag '{tag_name}' (DB error)."
+                    logger.error(f"{error_message} (add_tag_to_memory_entry_db returned False)")
+                    raise ValueError(error_message) # Raise to trigger rollback and outer handler
             logger.info(f"Tag '{tag_name}' added/associated with memory entry {entry_id} via web.")
-        except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error adding tag: {e}"; logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
-        except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
-    redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
+        except (SQLAlchemyError, ValueError) as e: # Catches ValueError raised above
+            error_message = error_message or f"Error adding tag: {e}"
+            logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
+        except Exception as e:
+            error_message = f"An unexpected error occurred: {e}"
+            logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
+
+    # --- Redirect logic ---
+    if error_message:
+        redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
 @router.post("/memory/{entry_id}/tags/remove", name="ui_remove_tag_from_memory_entry")
@@ -692,13 +774,13 @@ async def remove_tag_from_memory_entry_web(
     else:
         try:
             async with db.begin():
-                success = await _remove_tag_from_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name)
+                success = await remove_tag_from_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name)
                 if not success: error_message = f"Failed to remove tag '{tag_name}' due to database error."; raise SQLAlchemyError(error_message)
             logger.info(f"Tag '{tag_name}' removed/disassociated from memory entry {entry_id} via web.")
         except SQLAlchemyError as e: error_message = error_message or f"Database error removing tag: {e}"; logger.error(f"Error removing tag '{tag_name}' from memory {entry_id} via web: {e}", exc_info=True)
         except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error removing tag '{tag_name}' from memory {entry_id} via web: {e}", exc_info=True)
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
+    if error_message: redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
 # --- START: Memory-Document Linking Routes (Phase 6) ---
@@ -709,21 +791,23 @@ async def link_memory_to_document_web(
 ):
     """Handles linking a selected document to a memory entry."""
     logger.info(f"Web UI: Linking document {document_id} to memory entry {entry_id}")
-    error_message = None; message = None
+    error_message = None
     try:
         async with db.begin():
              mem_entry = await db.get(MemoryEntry, entry_id, options=[selectinload(MemoryEntry.documents)])
              doc_to_link = await db.get(Document, document_id)
              if not mem_entry: error_message = f"Memory Entry {entry_id} not found."
              elif not doc_to_link: error_message = f"Document {document_id} not found."
-             elif doc_to_link in mem_entry.documents: message = "Document already linked."
-             else: mem_entry.documents.append(doc_to_link); await db.flush(); message = f"Document '{doc_to_link.name}' linked successfully."; logger.info(message)
+             elif doc_to_link in mem_entry.documents: logger.info("Document already linked.") # Use logger instead of unused message
+             else: mem_entry.documents.append(doc_to_link); await db.flush(); logger.info(f"Document '{doc_to_link.name}' linked successfully.") # Use logger
              if error_message: raise ValueError(error_message)
     except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error linking document: {e}"; logger.error(f"Error linking doc {document_id} to memory {entry_id}: {e}", exc_info=True)
     except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error linking doc {document_id} to memory {entry_id}: {e}", exc_info=True)
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
-    # elif message and message != "Document already linked.": # Optional success flash
+    redirect_url = str(redirect_url)
+    if error_message:
+        redirect_url += f"?error={quote_plus(error_message)}"
+    # elif message: # Optional success flash
     return RedirectResponse(redirect_url, status_code=303)
 
 @router.post("/memory/{entry_id}/links/documents/{doc_id}/unlink", name="ui_unlink_memory_from_document")
@@ -732,21 +816,23 @@ async def unlink_memory_from_document_web(
 ):
     """Handles unlinking a document from a memory entry."""
     logger.info(f"Web UI: Unlinking document {doc_id} from memory entry {entry_id}")
-    error_message = None; message = None
+    error_message = None
     try:
         async with db.begin():
              mem_entry = await db.get(MemoryEntry, entry_id, options=[selectinload(MemoryEntry.documents)])
              doc_to_unlink = await db.get(Document, doc_id)
              if not mem_entry: error_message = f"Memory Entry {entry_id} not found."
              elif not doc_to_unlink: error_message = f"Document {doc_id} not found (cannot unlink)."
-             elif doc_to_unlink not in mem_entry.documents: message = "Link not found."
-             else: mem_entry.documents.remove(doc_to_unlink); await db.flush(); message = f"Document '{doc_to_unlink.name}' unlinked successfully."; logger.info(message)
+             elif doc_to_unlink not in mem_entry.documents: logger.info("Link not found.") # Use logger
+             else: mem_entry.documents.remove(doc_to_unlink); await db.flush(); logger.info(f"Document '{doc_to_unlink.name}' unlinked successfully.") # Use logger
              if error_message: raise ValueError(error_message)
     except (SQLAlchemyError, ValueError) as e: error_message = error_message or f"Error unlinking document: {e}"; logger.error(f"Error unlinking doc {doc_id} from memory {entry_id}: {e}", exc_info=True)
     except Exception as e: error_message = f"An unexpected error occurred: {e}"; logger.error(f"Error unlinking doc {doc_id} from memory {entry_id}: {e}", exc_info=True)
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
-    # elif message and message != "Link not found.": # Optional success flash
+    redirect_url = str(redirect_url)
+    if error_message:
+        redirect_url += f"?error={quote_plus(error_message)}"
+    # elif message: # Optional success flash
     return RedirectResponse(redirect_url, status_code=303)
 # --- END: Memory-Document Linking Routes (Phase 6) ---
 
@@ -760,7 +846,7 @@ async def link_memory_to_memory_web(
 ):
     """Handles linking another memory entry to the current one."""
     logger.info(f"Web UI: Linking memory entry {target_entry_id} to {entry_id} (type: {relation_type})")
-    error_message = None; message = None
+    error_message = None
 
     if entry_id == target_entry_id:
             error_message = "Cannot link an entry to itself."
@@ -784,8 +870,7 @@ async def link_memory_to_memory_web(
                     )
                     db.add(new_relation)
                     await db.flush()
-                    message = f"Linked entry {target_entry_id} to {entry_id}."
-                    logger.info(message)
+                    logger.info(f"Linked entry {target_entry_id} to {entry_id}.") # Use logger
 
                 if error_message: raise ValueError(error_message)
 
@@ -797,7 +882,9 @@ async def link_memory_to_memory_web(
             logger.error(f"Error linking memory {target_entry_id} to {entry_id}: {e}", exc_info=True)
 
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
-    if error_message: redirect_url += f"?error={quote_plus(error_message)}"
+    redirect_url = str(redirect_url)
+    if error_message:
+        redirect_url += f"?error={quote_plus(error_message)}"
     # elif message: # Optional success flash
     return RedirectResponse(redirect_url, status_code=303)
 
@@ -808,7 +895,7 @@ async def unlink_memory_relation_web(
 ):
     """Handles unlinking two memory entries via the relation ID."""
     logger.info(f"Web UI: Unlinking memory relation ID: {relation_id}")
-    error_message = None; message = None
+    error_message = None
     # Determine where to redirect: back to the source entry of the relation
     source_entry_id = None
     redirect_to_memory_list = False
@@ -822,11 +909,10 @@ async def unlink_memory_relation_web(
                 logger.info(f"Deleting relation ID: {relation.id} (linking {relation.source_memory_entry_id} -> {relation.target_memory_entry_id})")
                 await db.delete(relation)
                 await db.flush()
-                message = "Memory relation unlinked successfully."
+                logger.info("Memory relation unlinked successfully.") # Log instead of unused message
             else:
                 # Relation already gone? Treat as success for user.
-                message = "Relation not found (already unlinked?)."
-                logger.warning(f"Relation ID {relation_id} not found for unlinking.")
+                logger.warning(f"Relation ID {relation_id} not found for unlinking (already unlinked?).") # Log instead of unused message
                 redirect_to_memory_list = True # Cant determine source entry
 
     except SQLAlchemyError as e:
@@ -846,7 +932,7 @@ async def unlink_memory_relation_web(
             redirect_url = request.url_for('ui_list_memory_entries_all') # Fallback
 
     if error_message:
-        redirect_url += f"?error={quote_plus(error_message)}"
+        redirect_url = str(redirect_url) + "?" + (quote_plus(error_message) if error_message else "")
     # elif message and "successfully" in message: # Optional success flash
     return RedirectResponse(redirect_url, status_code=303)
 # --- END ADDED for Phase 6 ---
