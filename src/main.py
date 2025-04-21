@@ -79,6 +79,7 @@ def run_http_mode():
     logger.info("Including Web UI router at '/ui'...")
     app.include_router(web_ui_router, prefix="/ui", tags=["Web UI"])
 
+
     # --- Mount the FastMCP SSE App ---
     try:
         sse_asgi_app = mcp_instance.sse_app()
@@ -106,8 +107,9 @@ def run_http_mode():
         app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
-        log_level=settings.LOG_LEVEL.lower()
-        # --- REMOVED proxy_headers=True and forwarded_allow_ips ---
+        log_level=settings.LOG_LEVEL.lower(),
+        proxy_headers=True,
+        forwarded_allow_ips="*"
     )
 
 
