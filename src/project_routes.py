@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from urllib.parse import quote_plus
 from .database import get_db_session
@@ -107,7 +108,14 @@ async def view_project_web(project_id: int, request: Request, db: AsyncSession =
     project = None
     error_message = request.query_params.get("error")
     try:
-        stmt = select(Project).where(Project.id == project_id)
+        stmt = (
+            select(Project)
+            .where(Project.id == project_id)
+            .options(
+                selectinload(Project.documents),
+                selectinload(Project.memory_entries),
+            )
+        )
         result = await db.execute(stmt)
         project = result.scalar_one_or_none()
         if project is None:
