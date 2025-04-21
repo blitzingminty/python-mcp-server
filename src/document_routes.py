@@ -113,18 +113,21 @@ async def create_document_web(
         return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
 
     try:
-        async with db.begin():
-            added_document = await add_document_in_db(session=db, project_id=project_id, name=name, path=path, content=content, type=type, version=version if version else "1.0.0")
-            if added_document is None:
-                error_message = "Database error adding document (helper returned None)."
-                logger.error(f"Add document failed: {error_message}")
-                raise ValueError(error_message)
+        # Avoid nested transaction error by not using async with db.begin() here
+        added_document = await add_document_in_db(session=db, project_id=project_id, name=name, path=path, content=content, type=type, version=version if version else "1.0.0")
+        if added_document is None:
+            error_message = "Database error adding document (helper returned None)."
+            logger.error(f"Add document failed: {error_message}")
+            raise ValueError(error_message)
+        await db.commit()
         new_document_id = added_document.id
         logger.info(f"Document created directly via web route, ID: {new_document_id}")
     except (SQLAlchemyError, ValueError) as e:
+        await db.rollback()
         error_message = error_message or f"Error adding document: {e}"
         logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Error in create_document_web for project {project_id}: {e}", exc_info=True)
 
