@@ -79,13 +79,13 @@ async def view_document_web(doc_id: int, request: Request, db: AsyncSession = De
 
 @router.get("/projects/{project_id}/documents/new", response_class=HTMLResponse, name="ui_new_document")
 async def new_document_form(project_id: int, request: Request):
-        """Displays the form to create a new document for a specific project."""
-        logger.info(f"Web UI new document form requested for project ID: {project_id}")
-        templates = request.app.state.templates
-        if not templates:
-            raise HTTPException(status_code=500, detail="Server configuration error")
-        context_data: Dict[str, Any] = {
-            "page_title": "Add New Document",
+    """Displays the form to create a new document for a specific project."""
+    logger.info(f"Web UI new document form requested for project ID: {project_id}")
+    templates = request.app.state.templates
+    if not templates:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    context_data: Dict[str, Any] = {
+        "page_title": "Add New Document",
         "form_action": request.url_for('ui_create_document', project_id=project_id),
         "cancel_url": request.url_for('ui_view_project', project_id=project_id),
         "project_id": project_id,
@@ -136,16 +136,16 @@ async def create_document_web(
 
 @router.get("/documents/{doc_id}/edit", response_class=HTMLResponse, name="ui_edit_document")
 async def edit_document_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
-        """Displays the form pre-filled for editing document metadata."""
-        logger.info(f"Web UI edit document form requested for ID: {doc_id}")
-        templates = request.app.state.templates
-        if not templates:
-            raise HTTPException(status_code=500, detail="Server configuration error")
-        document = await db.get(Document, doc_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail=f"Document with ID {doc_id} not found")
-        context_data: Dict[str, Any] = {
-            "page_title": f"Edit Document: {document.name}",
+    """Displays the form pre-filled for editing document metadata."""
+    logger.info(f"Web UI edit document form requested for ID: {doc_id}")
+    templates = request.app.state.templates
+    if not templates:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    document = await db.get(Document, doc_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"Document with ID {doc_id} not found")
+    context_data: Dict[str, Any] = {
+        "page_title": f"Edit Document: {document.name}",
         "form_action": request.url_for('ui_update_document', doc_id=doc_id),
         "cancel_url": request.url_for('ui_view_document', doc_id=doc_id),
         "error": request.query_params.get("error"),
@@ -282,46 +282,46 @@ async def remove_tag_from_document_web(
 
 @router.get("/versions/{version_id}", response_class=HTMLResponse, name="ui_view_version")
 async def view_document_version_web(version_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
-        """Fetches a specific document version and renders its detail page."""
-        logger.info(f"Web UI document version detail requested for Version ID: {version_id}")
-        templates = request.app.state.templates
-        if not templates:
-            raise HTTPException(status_code=500, detail="Server configuration error")
-        version = None
-        error_message = None
-        try:
-            version = await get_document_version_content_db(session=db, version_id=version_id)
-            if version is None:
-                error_message = f"Document Version with ID {version_id} not found."
-                logger.warning(error_message)
-                raise HTTPException(status_code=404, detail=error_message)
-            else:
-                logger.info(f"Found document version '{version.version}' (ID: {version_id}) for doc ID {version.document_id}")
-        except SQLAlchemyError as e:
-            error_message = f"Error fetching document version details: {e}"
-            logger.error(f"Database error fetching document version {version_id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Database error fetching version details.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            error_message = f"Unexpected server error: {e}"
-            logger.error(f"Unexpected error fetching document version {version_id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Unexpected server error.")
-        context_data: Dict[str, Any] = {"page_title": f"Version {version.version} of Document {version.document.name}" if version and version.document else "Version Not Found", "version": version, "error": error_message}
-        return templates.TemplateResponse("version_detail.html", {"request": request, "data": context_data})
+    """Fetches a specific document version and renders its detail page."""
+    logger.info(f"Web UI document version detail requested for Version ID: {version_id}")
+    templates = request.app.state.templates
+    if not templates:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    version = None
+    error_message = None
+    try:
+        version = await get_document_version_content_db(session=db, version_id=version_id)
+        if version is None:
+            error_message = f"Document Version with ID {version_id} not found."
+            logger.warning(error_message)
+            raise HTTPException(status_code=404, detail=error_message)
+        else:
+            logger.info(f"Found document version '{version.version}' (ID: {version_id}) for doc ID {version.document_id}")
+    except SQLAlchemyError as e:
+        error_message = f"Error fetching document version details: {e}"
+        logger.error(f"Database error fetching document version {version_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error fetching version details.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"Unexpected server error: {e}"
+        logger.error(f"Unexpected error fetching document version {version_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unexpected server error.")
+    context_data: Dict[str, Any] = {"page_title": f"Version {version.version} of Document {version.document.name}" if version and version.document else "Version Not Found", "version": version, "error": error_message}
+    return templates.TemplateResponse("version_detail.html", {"request": request, "data": context_data})
 
 @router.get("/documents/{doc_id}/new_version", response_class=HTMLResponse, name="ui_new_version_form")
 async def new_document_version_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
-        """Displays the form to create a new version of a document."""
-        logger.info(f"Web UI new version form requested for document ID: {doc_id}")
-        templates = request.app.state.templates
-        if not templates:
-            raise HTTPException(status_code=500, detail="Server configuration error")
-        document = await db.get(Document, doc_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail=f"Document with ID {doc_id} not found")
-        context_data: Dict[str, Any] = {
-            "page_title": f"Create New Version for '{document.name}'",
+    """Displays the form to create a new version of a document."""
+    logger.info(f"Web UI new version form requested for document ID: {doc_id}")
+    templates = request.app.state.templates
+    if not templates:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    document = await db.get(Document, doc_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"Document with ID {doc_id} not found")
+    context_data: Dict[str, Any] = {
+        "page_title": f"Create New Version for '{document.name}'",
         "form_action": request.url_for('ui_create_version', doc_id=doc_id),
         "cancel_url": request.url_for('ui_view_document', doc_id=doc_id),
         "document": document,
