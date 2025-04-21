@@ -77,8 +77,8 @@ async def view_document_web(doc_id: int, request: Request, db: AsyncSession = De
     context_data: Dict[str, Any] = {"page_title": f"Document: {document.name}" if document else "Document Not Found", "document": document, "error": error_message}
     return templates.TemplateResponse("document_detail.html", {"request": request, "data": context_data})
 
-    @router.get("/projects/{project_id}/documents/new", response_class=HTMLResponse, name="ui_new_document")
-    async def new_document_form(project_id: int, request: Request):
+@router.get("/projects/{project_id}/documents/new", response_class=HTMLResponse, name="ui_new_document")
+async def new_document_form(project_id: int, request: Request):
         """Displays the form to create a new document for a specific project."""
         logger.info(f"Web UI new document form requested for project ID: {project_id}")
         templates = request.app.state.templates
@@ -134,8 +134,8 @@ async def create_document_web(
         error_param = f"?error={quote_plus(error_message or 'Unknown error adding document.')}"
         return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
 
-    @router.get("/documents/{doc_id}/edit", response_class=HTMLResponse, name="ui_edit_document")
-    async def edit_document_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
+@router.get("/documents/{doc_id}/edit", response_class=HTMLResponse, name="ui_edit_document")
+async def edit_document_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
         """Displays the form pre-filled for editing document metadata."""
         logger.info(f"Web UI edit document form requested for ID: {doc_id}")
         templates = request.app.state.templates
@@ -280,8 +280,8 @@ async def remove_tag_from_document_web(
         redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
-    @router.get("/versions/{version_id}", response_class=HTMLResponse, name="ui_view_version")
-    async def view_document_version_web(version_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
+@router.get("/versions/{version_id}", response_class=HTMLResponse, name="ui_view_version")
+async def view_document_version_web(version_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
         """Fetches a specific document version and renders its detail page."""
         logger.info(f"Web UI document version detail requested for Version ID: {version_id}")
         templates = request.app.state.templates
@@ -310,8 +310,8 @@ async def remove_tag_from_document_web(
         context_data: Dict[str, Any] = {"page_title": f"Version {version.version} of Document {version.document.name}" if version and version.document else "Version Not Found", "version": version, "error": error_message}
         return templates.TemplateResponse("version_detail.html", {"request": request, "data": context_data})
 
-    @router.get("/documents/{doc_id}/new_version", response_class=HTMLResponse, name="ui_new_version_form")
-    async def new_document_version_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
+@router.get("/documents/{doc_id}/new_version", response_class=HTMLResponse, name="ui_new_version_form")
+async def new_document_version_form(doc_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
         """Displays the form to create a new version of a document."""
         logger.info(f"Web UI new version form requested for document ID: {doc_id}")
         templates = request.app.state.templates
