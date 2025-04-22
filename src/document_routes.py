@@ -236,18 +236,21 @@ async def add_tag_to_document_web(
     if not tag_name or tag_name.isspace():
         error_message = "Tag name cannot be empty."
     else:
+        # Remove nested transaction context to avoid conflicts
         try:
-            async with db.begin():
-                success = await add_tag_to_document_db(session=db, document_id=doc_id, tag_name=tag_name.strip())
-                if not success:
-                    error_message = f"Failed to add tag '{tag_name}' (DB error)."
-                    logger.error(f"{error_message} (add_tag_to_document_db returned False)")
-                    raise ValueError(error_message)
+            success = await add_tag_to_document_db(session=db, document_id=doc_id, tag_name=tag_name.strip())
+            if not success:
+                error_message = f"Failed to add tag '{tag_name}' (DB error)."
+                logger.error(f"{error_message} (add_tag_to_document_db returned False)")
+                raise ValueError(error_message)
+            await db.commit()
             logger.info(f"Tag '{tag_name}' added/associated with document {doc_id} via web.")
         except (SQLAlchemyError, ValueError) as e:
+            await db.rollback()
             error_message = error_message or f"Error adding tag: {e}"
             logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
         except Exception as e:
+            await db.rollback()
             error_message = f"An unexpected error occurred: {e}"
             logger.error(f"Error adding tag '{tag_name}' to doc {doc_id} via web: {e}", exc_info=True)
 
@@ -348,20 +351,23 @@ async def create_document_version_web(
         error_param = f"?error={quote_plus(error_message)}"
         return RedirectResponse(str(request.url_for('ui_new_version_form', doc_id=doc_id)) + error_param, status_code=303)
     try:
-        async with db.begin():
-            updated_doc, new_version = await add_document_version_db(session=db, document_id=doc_id, content=content, version_string=version_string.strip())
-            if updated_doc is None or new_version is None:
-                error_message = f"Failed to add version '{version_string}'. Document {doc_id} not found or DB error occurred."
-                logger.error(f"Create version failed: {error_message}")
-                raise ValueError(error_message)
+        updated_doc, new_version = await add_document_version_db(session=db, document_id=doc_id, content=content, version_string=version_string.strip())
+        if updated_doc is None or new_version is None:
+            error_message = f"Failed to add version '{version_string}'. Document {doc_id} not found or DB error occurred."
+            logger.error(f"Create version failed: {error_message}")
+            raise ValueError(error_message)
+        await db.commit()
         logger.info(f"Version '{new_version.version}' (ID: {new_version.id}) created for document {doc_id} via web.")
     except ValueError as ve:
+        await db.rollback()
         error_message = str(ve)
         logger.warning(f"Validation error creating version for doc {doc_id}: {error_message}", exc_info=False)
     except SQLAlchemyError as e:
+        await db.rollback()
         error_message = f"Database error creating version: {e}"
         logger.error(f"Database error creating version for doc {doc_id}: {e}", exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Unexpected error creating version for doc {doc_id}: {e}", exc_info=True)
     if updated_doc is not None and new_version is not None and error_message is None:
