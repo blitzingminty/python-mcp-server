@@ -257,17 +257,20 @@ async def add_tag_to_memory_entry_web(
         error_message = "Tag name cannot be empty."
     else:
         try:
-            async with db.begin():
-                success = await add_tag_to_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name.strip())
-                if not success:
-                    error_message = f"Failed to add tag '{tag_name}' (DB error)."
-                    logger.error(f"{error_message} (add_tag_to_memory_entry_db returned False)")
-                    raise ValueError(error_message)
+            # Remove nested transaction context to avoid conflicts
+            success = await add_tag_to_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name.strip())
+            if not success:
+                error_message = f"Failed to add tag '{tag_name}' (DB error)."
+                logger.error(f"{error_message} (add_tag_to_memory_entry_db returned False)")
+                raise ValueError(error_message)
+            await db.commit()
             logger.info(f"Tag '{tag_name}' added/associated with memory entry {entry_id} via web.")
         except (SQLAlchemyError, ValueError) as e:
+            await db.rollback()
             error_message = error_message or f"Error adding tag: {e}"
             logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
         except Exception as e:
+            await db.rollback()
             error_message = f"An unexpected error occurred: {e}"
             logger.error(f"Error adding tag '{tag_name}' to memory {entry_id} via web: {e}", exc_info=True)
 
@@ -286,16 +289,19 @@ async def remove_tag_from_memory_entry_web(
         error_message = "Tag name not provided for removal."
     else:
         try:
-            async with db.begin():
-                success = await remove_tag_from_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name)
-                if not success:
-                    error_message = f"Failed to remove tag '{tag_name}' due to database error."
-                    raise SQLAlchemyError(error_message)
+            # Remove nested transaction context to avoid conflicts
+            success = await remove_tag_from_memory_entry_db(session=db, entry_id=entry_id, tag_name=tag_name)
+            if not success:
+                error_message = f"Failed to remove tag '{tag_name}' due to database error."
+                raise SQLAlchemyError(error_message)
+            await db.commit()
             logger.info(f"Tag '{tag_name}' removed/disassociated from memory entry {entry_id} via web.")
         except SQLAlchemyError as e:
+            await db.rollback()
             error_message = error_message or f"Database error removing tag: {e}"
             logger.error(f"Error removing tag '{tag_name}' from memory {entry_id} via web: {e}", exc_info=True)
         except Exception as e:
+            await db.rollback()
             error_message = f"An unexpected error occurred: {e}"
             logger.error(f"Error removing tag '{tag_name}' from memory {entry_id} via web: {e}", exc_info=True)
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
