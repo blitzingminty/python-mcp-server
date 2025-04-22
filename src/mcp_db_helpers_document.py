@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError #, IntegrityError
 from sqlalchemy.orm import selectinload
 
-from .models import Document, DocumentVersion #, Tag
+from .models import Document, DocumentVersion, Project # Added Project import
 #from .database import AsyncSessionFactory
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ async def add_document_in_db( # type: ignore
     type: str, version: str = "1.0.0"
 ) -> Optional[Document]:
     logger.debug(f"Helper: Adding document '{name}' to project {project_id}.")
-    project = await session.get(Document.__table__.c.project_id.type.python_type, project_id)
+    project = await session.get(Project, project_id)  # Fixed: get Project, not column type
     if project is None:
         logger.warning(f"Helper: Project {project_id} not found for adding document.")
         return None
