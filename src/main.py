@@ -8,9 +8,10 @@ import uvicorn # For running FastAPI
 # import asyncio # No longer needed
 
 # --- FastAPI Imports ---
-from fastapi import FastAPI #, Request
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
 from pathlib import Path
 
 # --- MCP / SSE Imports ---
@@ -86,6 +87,13 @@ def run_http_mode():
         if sse_asgi_app:
             app.mount("/mcp", sse_asgi_app, name="mcp_sse_app")
             logger.info("Mounted FastMCP SSE application at '/mcp'.")
+
+            # Add redirect route for trailing slash on /mcp/
+            @app.get("/mcp/", include_in_schema=False)
+            async def redirect_mcp_trailing_slash(request: Request):
+                target_url = str(request.url).rstrip("/")
+                return RedirectResponse(url=target_url, status_code=307)
+
         if not sse_asgi_app:
              raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
     except AttributeError:
