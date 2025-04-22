@@ -100,9 +100,11 @@ async def create_project_web(
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Unexpected error in create_project_web: {e}", exc_info=True)
     if new_project_id is not None:
+        logger.debug(f"Redirecting to view project page for project ID {new_project_id}")
         return RedirectResponse(request.url_for('ui_view_project', project_id=new_project_id), status_code=303)
     else:
         error_param = f"?error={quote_plus(error_message or 'Unknown error')}"
+        logger.debug(f"Redirecting to new project form with error: {error_message}")
         return RedirectResponse(str(request.url_for('ui_new_project')) + error_param, status_code=303)
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse, name="ui_view_project")
