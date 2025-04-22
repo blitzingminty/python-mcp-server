@@ -79,17 +79,24 @@ async def create_project_web(
     new_project_id = None
     created_project = None
     try:
-        async with db.begin():
-            created_project = await create_project_in_db(
-                session=db, name=name, path=path, description=description if description else None, is_active=is_active
-            )
+        # Avoid nested transaction error by not using async with db.begin() here
+        created_project = await create_project_in_db(
+            session=db, name=name, path=path, description=description if description else None, is_active=is_active
+        )
         if created_project:
+            await db.commit()
             new_project_id = created_project.id
             logger.info(f"Project created directly via web route, ID: {new_project_id}")
+        else:
+            error_message = f"Failed to create project."
+            logger.error(error_message)
+            raise ValueError(error_message)
     except SQLAlchemyError as e:
+        await db.rollback()
         error_message = f"Database error creating project: {e}"
         logger.error(f"Database error creating project via web route: {e}", exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Unexpected error in create_project_web: {e}", exc_info=True)
     if new_project_id is not None:
@@ -139,15 +146,19 @@ async def update_project_web(
     error_message = None
     updated_project = None
     try:
-        async with db.begin():
-            updated_project = await update_project_in_db(session=db, project_id=project_id, name=name, path=path, description=description if description else None, is_active=is_active)
+        # Avoid nested transaction error by not using async with db.begin() here
+        updated_project = await update_project_in_db(session=db, project_id=project_id, name=name, path=path, description=description if description else None, is_active=is_active)
         if updated_project is None:
             error_message = f"Project with ID {project_id} not found."
             logger.warning(f"Update failed via web route: {error_message}")
+            raise ValueError(error_message)
+        await db.commit()
     except SQLAlchemyError as e:
+        await db.rollback()
         error_message = f"Database error updating project: {e}"
         logger.error(f"Database error updating project {project_id} via web route: {e}", exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Unexpected error in update_project_web for ID {project_id}: {e}", exc_info=True)
     if updated_project is not None and error_message is None:
@@ -162,17 +173,20 @@ async def delete_project_web(project_id: int, request: Request, db: AsyncSession
     logger.info(f"Web UI delete_project form submitted for ID: {project_id}")
     error_message = None
     try:
-        async with db.begin():
-            deleted = await delete_project_in_db(session=db, project_id=project_id)
-            if not deleted:
-                error_message = f"Failed to delete project {project_id} (DB error)."
-                logger.error(f"{error_message} (Helper returned False)")
-                raise SQLAlchemyError(error_message)
+        # Avoid nested transaction error by not using async with db.begin() here
+        deleted = await delete_project_in_db(session=db, project_id=project_id)
+        if not deleted:
+            error_message = f"Failed to delete project {project_id} (DB error)."
+            logger.error(f"{error_message} (Helper returned False)")
+            raise SQLAlchemyError(error_message)
+        await db.commit()
         logger.info(f"Project {project_id} deleted successfully via web route.")
     except SQLAlchemyError as e:
+        await db.rollback()
         error_message = error_message or f"Database error deleting project {project_id}: {e}"
         logger.error(error_message, exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"Error deleting project {project_id}: {e}"
         logger.error(error_message, exc_info=True)
     redirect_url = request.url_for('ui_list_projects')
