@@ -299,4 +299,3 @@ async def remove_tag_from_memory_entry_web(
     if error_message:
         redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
-</replace_in_file>
