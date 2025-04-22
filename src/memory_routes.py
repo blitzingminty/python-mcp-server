@@ -138,18 +138,21 @@ async def create_memory_entry_web(
         return RedirectResponse(redirect_url_on_error + error_param, status_code=303)
 
     try:
-        async with db.begin():
-            new_entry = await add_memory_entry_db(session=db, project_id=project_id, title=title, type=type, content=content)
-            if new_entry is None:
-                error_message = "Database error adding memory entry (helper returned None)."
-                logger.error(f"Add memory entry failed: {error_message}")
-                raise ValueError(error_message)
+        # Remove nested transaction context to avoid conflicts
+        new_entry = await add_memory_entry_db(session=db, project_id=project_id, title=title, type=type, content=content)
+        if new_entry is None:
+            error_message = "Database error adding memory entry (helper returned None)."
+            logger.error(f"Add memory entry failed: {error_message}")
+            raise ValueError(error_message)
+        await db.commit()
         new_entry_id = new_entry.id
         logger.info(f"Memory entry created via web route, ID: {new_entry_id}")
     except (SQLAlchemyError, ValueError) as e:
+        await db.rollback()
         error_message = error_message or f"Error adding memory entry: {e}"
         logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
     except Exception as e:
+        await db.rollback()
         error_message = f"An unexpected error occurred: {e}"
         logger.error(f"Error in create_memory_entry_web for project {project_id}: {e}", exc_info=True)
 
