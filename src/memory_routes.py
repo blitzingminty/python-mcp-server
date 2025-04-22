@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Sequence, Optional
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from urllib.parse import quote_plus
 from .database import get_db_session
-from .models import MemoryEntry
+from .models import MemoryEntry, Project
 from .mcp_db_helpers_memory import (
     get_memory_entry_db,
     add_memory_entry_db,
@@ -28,8 +28,8 @@ async def list_all_memory_entries_web(request: Request, db: AsyncSession = Depen
     templates = request.app.state.templates
     if not templates:
         raise HTTPException(status_code=500, detail="Server configuration error")
-    memory_entries = []
-    error_message = request.query_params.get("error")
+    memory_entries: Sequence[MemoryEntry] = []
+    error_message: Optional[str] = request.query_params.get("error")
     try:
         stmt = select(MemoryEntry).options(selectinload(MemoryEntry.project)).order_by(MemoryEntry.updated_at.desc())
         result = await db.execute(stmt)
@@ -52,10 +52,10 @@ async def view_memory_entry_web(entry_id: int, request: Request, db: AsyncSessio
     if not templates:
         raise HTTPException(status_code=500, detail="Server configuration error")
 
-    error_message = request.query_params.get("error")
-    entry = None
-    available_documents = []
-    available_memory_entries = []
+    error_message: Optional[str] = request.query_params.get("error")
+    entry: Optional[MemoryEntry] = None
+    available_documents: Sequence = []
+    available_memory_entries: Sequence = []
 
     try:
         entry = await get_memory_entry_db(session=db, entry_id=entry_id)
@@ -84,12 +84,12 @@ async def view_memory_entry_web(entry_id: int, request: Request, db: AsyncSessio
         error_message = error_message or f"Unexpected server error: {e}"
         raise HTTPException(status_code=500, detail=error_message)
 
-    tags = sorted([tag.name for tag in entry.tags]) if entry.tags else []
-    linked_docs = [{"id": doc.id, "name": doc.name} for doc in entry.documents] if entry.documents else []
-    relations_from = [{"relation_id": rel.id, "type": rel.relation_type, "target_id": rel.target_memory_entry_id, "target_title": rel.target_entry.title if rel.target_entry else "N/A"} for rel in entry.source_relations] if entry.source_relations else []
-    relations_to = [{"relation_id": rel.id, "type": rel.relation_type, "source_id": rel.source_memory_entry_id, "source_title": rel.source_entry.title if rel.source_entry else "N/A"} for rel in entry.target_relations] if entry.target_relations else []
+    tags: Sequence[str] = sorted([tag.name for tag in entry.tags]) if entry.tags else []
+    linked_docs: Sequence[Dict[str, Any]] = [{"id": doc.id, "name": doc.name} for doc in entry.documents] if entry.documents else []
+    relations_from: Sequence[Dict[str, Any]] = [{"relation_id": rel.id, "type": rel.relation_type, "target_id": rel.target_memory_entry_id, "target_title": rel.target_entry.title if rel.target_entry else "N/A"} for rel in entry.source_relations] if entry.source_relations else []
+    relations_to: Sequence[Dict[str, Any]] = [{"relation_id": rel.id, "type": rel.relation_type, "source_id": rel.source_memory_entry_id, "source_title": rel.source_entry.title if rel.source_entry else "N/A"} for rel in entry.target_relations] if entry.target_relations else []
 
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": f"Memory Entry: {entry.title}",
         "entry": entry,
         "tags": tags,
@@ -109,7 +109,7 @@ async def new_memory_entry_form(project_id: int, request: Request):
     templates = request.app.state.templates
     if not templates:
         raise HTTPException(status_code=500, detail="Server configuration error")
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": "Add New Memory Entry",
         "form_action": request.url_for('ui_create_memory_entry', project_id=project_id),
         "cancel_url": request.url_for('ui_view_project', project_id=project_id),
@@ -125,12 +125,12 @@ async def create_memory_entry_web(
 ):
     """Handles submission of the new memory entry form."""
     logger.info(f"Web UI create memory entry submitted for project {project_id}: title='{title}'")
-    error_message = None
-    new_entry = None
-    new_entry_id = None
-    redirect_url_on_error = str(request.url_for('ui_new_memory_entry', project_id=project_id))
+    error_message: Optional[str] = None
+    new_entry: Optional[MemoryEntry] = None
+    new_entry_id: Optional[int] = None
+    redirect_url_on_error: str = str(request.url_for('ui_new_memory_entry', project_id=project_id))
 
-    project = await db.get(MemoryEntry, project_id)
+    project = await db.get(Project, project_id)
     if project is None:
         error_message = f"Project with ID {project_id} not found."
         logger.warning(error_message)
@@ -169,7 +169,7 @@ async def edit_memory_entry_form(entry_id: int, request: Request, db: AsyncSessi
     entry = await db.get(MemoryEntry, entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Memory Entry with ID {entry_id} not found")
-    context_data = {
+    context_data: Dict[str, Any] = {
         "page_title": f"Edit Memory Entry: {entry.title}",
         "form_action": request.url_for('ui_update_memory_entry', entry_id=entry_id),
         "cancel_url": request.url_for('ui_view_memory_entry', entry_id=entry_id),
@@ -186,8 +186,8 @@ async def update_memory_entry_web(
 ):
     """Handles submission of the edit memory entry form."""
     logger.info(f"Web UI update memory entry submitted for ID: {entry_id}")
-    error_message = None
-    updated_entry = None
+    error_message: Optional[str] = None
+    updated_entry: Optional[MemoryEntry] = None
     try:
         async with db.begin():
             updated_entry = await update_memory_entry_db(session=db, entry_id=entry_id, title=title, type=type, content=content)
@@ -212,8 +212,8 @@ async def update_memory_entry_web(
 async def delete_memory_entry_web(entry_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
     """Handles deletion of a memory entry."""
     logger.info(f"Web UI delete memory entry request for ID: {entry_id}")
-    error_message = None
-    project_id_to_redirect = None
+    error_message: Optional[str] = None
+    project_id_to_redirect: Optional[int] = None
     try:
         async with db.begin():
             deleted, project_id = await delete_memory_entry_db(session=db, entry_id=entry_id)
@@ -231,7 +231,7 @@ async def delete_memory_entry_web(entry_id: int, request: Request, db: AsyncSess
         logger.error(error_message, exc_info=True)
     redirect_url = request.url_for('ui_view_project', project_id=project_id_to_redirect) if project_id_to_redirect else request.url_for('ui_list_projects')
     if error_message:
-        logger.warning(f"Redirecting after delete failure for memory entry {entry_id}: {error_message}")
+        redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
 
 @router.post("/memory/{entry_id}/tags/add", name="ui_add_tag_to_memory_entry")
@@ -240,7 +240,7 @@ async def add_tag_to_memory_entry_web(
 ):
     """Handles adding a tag to a memory entry."""
     logger.info(f"Web UI add tag '{tag_name}' request for memory entry ID: {entry_id}")
-    error_message = None
+    error_message: Optional[str] = None
     redirect_url = request.url_for('ui_view_memory_entry', entry_id=entry_id)
 
     entry = await db.get(MemoryEntry, entry_id)
@@ -278,7 +278,7 @@ async def remove_tag_from_memory_entry_web(
 ):
     """Handles removing a tag from a memory entry."""
     logger.info(f"Web UI remove tag '{tag_name}' request for memory entry ID: {entry_id}")
-    error_message = None
+    error_message: Optional[str] = None
     if not tag_name:
         error_message = "Tag name not provided for removal."
     else:
@@ -299,3 +299,4 @@ async def remove_tag_from_memory_entry_web(
     if error_message:
         redirect_url = str(redirect_url) + f"?error={quote_plus(error_message)}"
     return RedirectResponse(redirect_url, status_code=303)
+</replace_in_file>
