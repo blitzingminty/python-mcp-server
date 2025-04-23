@@ -41,3 +41,4 @@ reference_docs/fix_app_lifespan_implementation_plan.md
 mcp-server-prompt.md
 remote_host.txt
 /implementation_plans
+scripts/analyze_src.py

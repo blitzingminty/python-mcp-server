@@ -20,6 +20,23 @@ async def create_project_in_db( # type: ignore
     logger.debug(f"Helper: Project created with ID {new_project.id}")
     return new_project
 
+from typing import Sequence
+
+async def list_projects_in_db(session: AsyncSession) -> Sequence[Project]:
+    logger.debug("Helper: Listing all projects from DB.")
+    stmt = select(Project).order_by(Project.name)
+    result = await session.execute(stmt)
+    projects = result.scalars().all()
+    logger.debug(f"Helper: Retrieved {len(projects)} projects.")
+    return projects
+
+async def get_project_in_db(session: AsyncSession, project_id: int) -> Optional[Project]:
+    logger.debug(f"Helper: Getting project ID {project_id} from DB.")
+    project = await session.get(Project, project_id)
+    if project is None:
+        logger.warning(f"Helper: Project ID {project_id} not found.")
+    return project
+
 async def update_project_in_db( # type: ignore
     session: AsyncSession, project_id: int, name: Optional[str] = None,
     description: Optional[str] = None, path: Optional[str] = None, is_active: Optional[bool] = None

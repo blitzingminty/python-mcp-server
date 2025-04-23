@@ -35,6 +35,18 @@ async def app_lifespan(app: FastAPI) -> AsyncIterator[Dict[str, Any]]:
     finally:
         logger.info("Application lifespan shutdown.")
 
+from typing import Callable, Optional, Any
+
+# Add logging to FastMCP add_tool method to trace tool registration
+original_add_tool = FastMCP.add_tool
+
+def logged_add_tool(self: Any, fn: Callable[..., Any], name: Optional[str] = None, description: Optional[str] = None) -> Any:
+    tool_name = name or getattr(fn, "__name__", "<unknown>")
+    logger.info(f"Registering MCP tool: {tool_name}")
+    return original_add_tool(self, fn, name=name, description=description)
+
+FastMCP.add_tool = logged_add_tool
+
 mcp_instance = FastMCP(
     name=settings.MCP_SERVER_NAME,
     version=settings.VERSION,

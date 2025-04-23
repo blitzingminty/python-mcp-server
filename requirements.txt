@@ -12,3 +12,4 @@ sse-starlette
 aiosqlite
 mcp[cli]
 httpx
+flake8

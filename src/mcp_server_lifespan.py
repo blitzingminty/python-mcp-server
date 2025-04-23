@@ -7,6 +7,9 @@ from mcp.server.fastmcp import FastMCP
 from .database import AsyncSessionFactory, Base, engine
 from .config import settings
 
+# Explicitly import MCP tool modules to ensure registration before MCP instance usage
+import src.mcp_project_tools  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI

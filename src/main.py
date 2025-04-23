@@ -8,10 +8,9 @@ import uvicorn # For running FastAPI
 # import asyncio # No longer needed
 
 # --- FastAPI Imports ---
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
 from pathlib import Path
 
 # --- MCP / SSE Imports ---
@@ -89,10 +88,81 @@ def run_http_mode():
             logger.info("Mounted FastMCP SSE application at '/mcp'.")
 
             # Add redirect route for trailing slash on /mcp/
-            @app.get("/mcp/", include_in_schema=False)
-            async def redirect_mcp_trailing_slash(request: Request):
-                target_url = str(request.url).rstrip("/")
-                return RedirectResponse(url=target_url, status_code=307)
+            # Removed unused function redirect_mcp_trailing_slash to fix Pylance warning
+            # @app.get("/mcp/", include_in_schema=False)
+            # async def redirect_mcp_trailing_slash(request: Request):
+            #     target_url = str(request.url).rstrip("/")
+            #     return RedirectResponse(url=target_url, status_code=307)
+
+            # Add POST forwarding route for /messages/ to MCP SSE app
+            from starlette.middleware.base import BaseHTTPMiddleware
+            from starlette.requests import Request as StarletteRequest
+            from starlette.responses import Response
+            from typing import Callable, Awaitable, List, Dict, Tuple
+            from starlette.types import ASGIApp, Receive, Scope, Message
+
+            class MCPMessageForwarder(BaseHTTPMiddleware):
+                def __init__(self, app: ASGIApp, mcp_app: ASGIApp) -> None:
+                    super().__init__(app)
+                    self.mcp_app = mcp_app
+
+                async def dispatch(self, request: StarletteRequest, call_next: Callable[[StarletteRequest], Awaitable[Response]]) -> Response:
+                    if request.url.path.startswith("/messages/") and request.method == "POST":
+                        scope: Scope = dict(request.scope)
+                        scope["path"] = request.url.path
+                        receive: Receive = request.receive
+
+                        # Collect response messages from mcp_app
+                        response_messages: List[Message] = []
+
+                        async def send(message: Message) -> None:
+                            response_messages.append(message)
+                            # Add debug logging for each message sent by MCP app
+                            logger.debug(f"MCP SSE message sent: {message}")
+
+                        logger.info(f"Forwarding POST request to MCP app: path={scope['path']}")
+                        await self.mcp_app(scope, receive, send)
+                        logger.info(f"Completed forwarding POST request to MCP app, collected {len(response_messages)} messages")
+
+                        # Add logging to inspect tools list response
+                        for message in response_messages:
+                            if message["type"] == "http.response.body":
+                                try:
+                                    body_content = message.get("body", b"").decode("utf-8")
+                                    logger.info(f"MCP tools list response body: {body_content}")
+                                except Exception as e:
+                                    logger.error(f"Failed to decode MCP tools list response body: {e}")
+
+                        # Find the HTTP response start message
+                        for message in response_messages:
+                            if message["type"] == "http.response.start":
+                                status_code: int = message.get("status", 200)
+                                headers_raw: List[Tuple[bytes, bytes]] = message.get("headers", [])
+                                break
+                        else:
+                            status_code = 200
+                            headers_raw = []
+
+                        # Decode headers from bytes to str
+                        headers: Dict[str, str] = {}
+                        for key_bytes, value_bytes in headers_raw:
+                            headers[key_bytes.decode("latin1")] = value_bytes.decode("latin1")
+
+                        # Find the HTTP response body message
+                        body = b""
+                        for message in response_messages:
+                            if message["type"] == "http.response.body":
+                                body += message.get("body", b"")
+                                if not message.get("more_body", False):
+                                    break
+
+                        logger.info(f"Returning response from MCP app with status {status_code} and headers {headers}")
+                        return Response(content=body, status_code=status_code, headers=headers)
+                    else:
+                        response = await call_next(request)
+                        return response
+
+            app.add_middleware(MCPMessageForwarder, mcp_app=sse_asgi_app)
 
         if not sse_asgi_app:
              raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
