@@ -15,6 +15,16 @@ from .models import Project, Document, DocumentVersion, MemoryEntry, Tag, Memory
 
 logger = logging.getLogger(__name__)
 
+
+async def get_session(ctx):
+    try:
+        session_factory = ctx.request_context.lifespan_context["db_session_factory"]
+        return session_factory()
+    except KeyError:
+        raise RuntimeError("Server configuration error: DB Session Factory missing.")
+    except AttributeError:
+        raise RuntimeError("Server configuration error: Context structure invalid.")
+    
 # --- DB Helper Functions ---
 
 async def get_or_create_tag(session: AsyncSession, tag_name: str) -> Tag:

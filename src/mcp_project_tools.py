@@ -1,6 +1,6 @@
 from typing import Any, Dict
 from mcp.server.fastmcp import Context
-from .mcp_server_core import mcp_instance, get_session
+from .mcp_server_core import mcp_instance
 from .mcp_db_helpers_project import (
     create_project_in_db,
     list_projects_in_db,
@@ -10,6 +10,9 @@ from .mcp_db_helpers_project import (
     set_active_project_in_db,
 )
 from .models import Project
+
+# Import get_session from a new helper module to avoid circular import
+from .mcp_db_helpers import get_session
 
 @mcp_instance.tool()
 async def list_projects(ctx: Context[Any, Any]) -> Dict[str, Any]:
