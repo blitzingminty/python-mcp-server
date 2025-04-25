@@ -1,9 +1,8 @@
-<immersive id="ai_coding_debug_flowchart" type="text/markdown" title="AI Model Coding Issue Resolution Flowchart">
-```mermaid
 graph TD
     A[Identify Coding Issue/Error] --> B{Understand Error Message & Context};
     B --> C{Analyze Code Logic & Syntax};
-    C --> D{Check Common Issues (Typos, Dependencies, Environment)};
+    C --> D{"Check Common Issues (Typos, Dependencies, Environment)"};
+    %% <- Text enclosed in quotes
     D --> E{Search Internal Knowledge/Training Data};
     E --> F{Issue Resolved?};
     F -- Yes --> G[Solution Found & Verified];
@@ -59,5 +58,4 @@ graph TD
 
 14. **Escalate/Report Unresolved Issue:** If neither internal checks nor external assistance resolves the issue, it's flagged for further review or manual intervention.
 
-15. **End Process:** The flowchart concludes.
-</immersive>
+15. **End Process:** The flowchart conclud

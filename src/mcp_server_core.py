@@ -70,6 +70,7 @@ def logged_add_tool(self: Any, fn: Callable[..., Any], name: Optional[str] = Non
         original_add_tool(self, fn, name=name, description=description)
     else:
         logger.error("original_add_tool is not callable.")
+        return
     logger.info(f"Completed call to original FastMCP.add_tool for '{tool_name}'")
     if hasattr(self, "_tool_manager") and hasattr(self._tool_manager, "_tools"):
         tools = getattr(self._tool_manager, "_tools", {})
