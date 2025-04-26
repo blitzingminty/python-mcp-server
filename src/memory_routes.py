@@ -15,7 +15,8 @@ from .mcp_db_helpers_memory import (
     update_memory_entry_db,
     delete_memory_entry_db,
     add_tag_to_memory_entry_db,
-    remove_tag_from_memory_entry_db
+    remove_tag_from_memory_entry_db,
+    list_memory_entries_db
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,20 @@ async def list_all_memory_entries_web(request: Request, db: AsyncSession = Depen
         error_message = error_message or f"Unexpected server error: {e}"
         logger.error(f"Unexpected error fetching all memory entries: {e}", exc_info=True)
     context_data: Dict[str, Any] = {"page_title": "All Memory Entries", "memory_entries": memory_entries, "error": error_message}
+    return templates.TemplateResponse("memory_entries_list.html", {"request": request, "data": context_data})
+
+@router.get("/projects/{project_id}/memory", response_class=HTMLResponse, name="ui_list_memory_entries")
+async def list_memory_entries_web(project_id: int, request: Request, db: AsyncSession = Depends(get_db_session)):
+    """Lists memory entries for a specific project."""
+    logger.info(f"Web UI list memory entries requested for project ID: {project_id}")
+    templates = request.app.state.templates
+    if not templates:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    memory_entries = await list_memory_entries_db(session=db, project_id=project_id)
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project with ID {project_id} not found")
+    context_data: Dict[str, Any] = {"page_title": f"Memory Entries for Project: {project.name}", "memory_entries": memory_entries, "project": project}
     return templates.TemplateResponse("memory_entries_list.html", {"request": request, "data": context_data})
 
 @router.get("/memory/{entry_id}", response_class=HTMLResponse, name="ui_view_memory_entry")

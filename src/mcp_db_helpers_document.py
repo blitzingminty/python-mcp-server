@@ -6,10 +6,59 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError #, IntegrityError
 from sqlalchemy.orm import selectinload
 
+from typing import List # Added List import
 from .models import Document, DocumentVersion, Project # Added Project import
 #from .database import AsyncSessionFactory
 
 logger = logging.getLogger(__name__)
+
+async def list_documents_in_db(session: AsyncSession, project_id: Optional[int] = None) -> List[Document]: # type: ignore
+    """
+    Helper to list documents, optionally filtered by project.
+    Eagerly loads project and tags for context.
+    """
+    logger.debug(f"Helper: Listing documents for project {project_id if project_id is not None else 'all'}.")
+    try:
+        stmt = select(Document).options(selectinload(Document.project), selectinload(Document.tags)).order_by(Document.project_id, Document.name)
+        if project_id is not None:
+            stmt = stmt.where(Document.project_id == project_id)
+        result = await session.execute(stmt)
+        documents = result.scalars().all()
+        logger.debug(f"Helper: Found {len(documents)} documents.")
+        return documents
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error listing documents: {e}", exc_info=True)
+        return []
+    except Exception as e:
+        logger.error(f"Helper: Unexpected error listing documents: {e}", exc_info=True)
+        return []
+
+async def get_document_in_db(session: AsyncSession, document_id: int) -> Optional[Document]: # type: ignore
+    """
+    Helper to get a single document by ID.
+    Eagerly loads project, tags, and versions for context.
+    """
+    logger.debug(f"Helper: Getting document ID {document_id}.")
+    try:
+        stmt = select(Document).options(
+            selectinload(Document.project),
+            selectinload(Document.tags),
+            selectinload(Document.versions)
+        ).where(Document.id == document_id)
+        result = await session.execute(stmt)
+        document = result.scalar_one_or_none()
+        if document:
+            logger.debug(f"Helper: Found document '{document.name}' (ID: {document_id}).")
+        else:
+            logger.debug(f"Helper: Document ID {document_id} not found.")
+        return document
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error getting document {document_id}: {e}", exc_info=True)
+        return None
+    except Exception as e:
+        logger.error(f"Helper: Unexpected error getting document {document_id}: {e}", exc_info=True)
+        return None
+
 
 async def add_document_in_db( # type: ignore
     session: AsyncSession, project_id: int, name: str, path: str, content: str,
@@ -203,4 +252,26 @@ async def remove_tag_from_document_db(session: AsyncSession, document_id: int, t
         return False
     except Exception as e:
         logger.error(f"Helper: Unexpected error removing tag '{tag_name}' from document {document_id}: {e}", exc_info=True)
+        return False
+
+async def delete_document_version_db(session: AsyncSession, version_id: int) -> bool:
+    """
+    Helper to delete a specific document version by its ID.
+    """
+    logger.debug(f"Helper: Deleting document version ID {version_id} from DB.")
+    try:
+        version = await session.get(DocumentVersion, version_id)
+        if version is None:
+            logger.warning(f"Helper: DocumentVersion ID {version_id} not found for deletion.")
+            return False
+
+        await session.delete(version)
+        await session.flush()
+        logger.info(f"Helper: DocumentVersion ID {version_id} deleted.")
+        return True
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error deleting document version {version_id}: {e}", exc_info=True)
+        return False
+    except Exception as e:
+        logger.error(f"Helper: Unexpected error deleting document version {version_id}: {e}", exc_info=True)
         return False

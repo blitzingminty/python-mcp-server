@@ -168,3 +168,18 @@ async def remove_tag_from_memory_entry_db(session: AsyncSession, entry_id: int, 
     except Exception as e:
         logger.error(f"Helper: Unexpected error removing tag '{tag_name}' from memory {entry_id}: {e}", exc_info=True)
         return False
+
+async def list_memory_entries_db(session: AsyncSession, project_id: int):
+    logger.debug(f"Helper: Listing memory entries for project {project_id}.")
+    try:
+        stmt = select(MemoryEntry).where(MemoryEntry.project_id == project_id)
+        result = await session.execute(stmt)
+        entries = result.scalars().all()
+        logger.debug(f"Helper: Found {len(entries)} memory entries for project {project_id}.")
+        return entries
+    except SQLAlchemyError as e:
+        logger.error(f"Helper: Database error listing memory entries for project {project_id}: {e}", exc_info=True)
+        return []
+    except Exception as e:
+        logger.error(f"Helper: Unexpected error listing memory entries for project {project_id}: {e}", exc_info=True)
+        return []

@@ -1,36 +1,151 @@
+# pyright: reportMissingTypeStubs=false
+# pyright: reportUnknownMemberType=false
+
 import logging
 from src.mcp_server_core import mcp_instance
+from .mcp_db_helpers_memory import list_memory_entries_db
+from src.database import get_db_session
+from typing import Any, Optional
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def get_session_from_factory():
+    async for session in get_db_session():
+        yield session
+
 @mcp_instance.tool(name="list_memory", description="List all memory entries")
-async def list_memory():
+async def list_memory(project_id: int):
     logger.info("MCP Tool 'list_memory' called.")
-    # TODO: Integrate with memory entries database helper functions.
-    return {"memory_entries": []}
+
+    async with get_session_from_factory() as session:
+        memory_entries = await list_memory_entries_db(session, project_id)
+        memory_list = []
+        for entry in memory_entries:
+            memory_list.append({
+                "id": entry.id,
+                "title": entry.title,
+                "type": entry.type,
+                "content": entry.content
+            })
+        return {"memory_entries": memory_list}
 
 @mcp_instance.tool(name="create_memory", description="Create a new memory entry")
-async def create_memory(memory_data: dict):
-    logger.info("MCP Tool 'create_memory' called with data: %s", memory_data)
-    # TODO: Integrate with memory creation logic from database helpers.
-    return {"status": "created", "memory_entry": memory_data}
+async def create_memory(project_id: int, title: str, type: str, content: str):
+    logger.info("MCP Tool 'create_memory' called with data: %s", {"title": title, "type": type, "content": content})
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import add_memory_entry_db
+        memory_entry = await add_memory_entry_db(session, project_id, title, type, content)
+        if memory_entry:
+            return {
+                "status": "created",
+                "memory_entry": {
+                    "id": memory_entry.id,
+                    "title": memory_entry.title,
+                    "type": memory_entry.type,
+                    "content": memory_entry.content
+                }
+            }
+        else:
+            return {"status": "error", "message": "Failed to create memory entry"}
 
 @mcp_instance.tool(name="get_memory", description="Retrieve details for a memory entry")
 async def get_memory(memory_id: int):
     logger.info("MCP Tool 'get_memory' called for memory_id: %d", memory_id)
-    # TODO: Retrieve the memory entry details from the database.
-    return {"memory_id": memory_id, "details": "Memory entry details placeholder"}
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import get_memory_entry_db
+        memory_entry = await get_memory_entry_db(session, memory_id)
+        if memory_entry:
+            return {
+                "id": memory_entry.id,
+                "title": memory_entry.title,
+                "type": memory_entry.type,
+                "content": memory_entry.content
+            }
+        else:
+            return {"status": "error", "message": f"Memory entry with id {memory_id} not found"}
 
 @mcp_instance.tool(name="update_memory", description="Update an existing memory entry")
-async def update_memory(memory_id: int, update_data: dict):
-    logger.info("MCP Tool 'update_memory' called for memory_id: %d with data: %s", memory_id, update_data)
-    # TODO: Update the memory entry using database helper functions.
-    return {"status": "updated", "memory_id": memory_id}
+async def update_memory(memory_id: int, title: Optional[str] = None, type: Optional[str] = None, content: Optional[str] = None):
+    logger.info("MCP Tool 'update_memory' called for memory_id: %d with data: %s", memory_id, {"title": title, "type": type, "content": content})
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import update_memory_entry_db
+        memory_entry = await update_memory_entry_db(session, memory_id, title, type, content)
+        if memory_entry:
+            return {
+                "status": "updated",
+                "memory_entry": {
+                    "id": memory_entry.id,
+                    "title": memory_entry.title,
+                    "type": memory_entry.type,
+                    "content": memory_entry.content
+                }
+            }
+        else:
+            return {"status": "error", "message": f"Memory entry with id {memory_id} not found"}
 
 @mcp_instance.tool(name="delete_memory", description="Delete a memory entry")
 async def delete_memory(memory_id: int):
     logger.info("MCP Tool 'delete_memory' called for memory_id: %d", memory_id)
-    # TODO: Delete the memory entry using database helper functions.
-    return {"status": "deleted", "memory_id": memory_id}
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import delete_memory_entry_db
+        success, project_id = await delete_memory_entry_db(session, memory_id)
+        if success:
+            return {"status": "deleted", "memory_id": memory_id}
+        else:
+            return {"status": "error", "message": f"Failed to delete memory entry with id {memory_id}"}
+
+@mcp_instance.tool(name="add_tag_to_memory_entry", description="Add a tag to a memory entry")
+async def add_tag_to_memory_entry(memory_id: int, tag_name: str):
+    logger.info("MCP Tool 'add_tag_to_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import add_tag_to_memory_entry_db
+        success = await add_tag_to_memory_entry_db(session, memory_id, tag_name)
+        if success:
+            return {"status": "success", "message": f"Tag '{tag_name}' added to memory entry with id {memory_id}"}
+        else:
+            return {"status": "error", "message": f"Failed to add tag '{tag_name}' to memory entry with id {memory_id}"}
+
+@mcp_instance.tool(name="remove_tag_from_memory_entry", description="Remove a tag from a memory entry")
+async def remove_tag_from_memory_entry(memory_id: int, tag_name: str):
+    logger.info("MCP Tool 'remove_tag_from_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import remove_tag_from_memory_entry_db
+        success = await remove_tag_from_memory_entry_db(session, memory_id, tag_name)
+        if success:
+            return {"status": "success", "message": f"Tag '{tag_name}' removed from memory entry with id {memory_id}"}
+        else:
+            return {"status": "error", "message": f"Failed to remove tag '{tag_name}' from memory entry with id {memory_id}"}
+
+@mcp_instance.tool(name="add_memory_relation", description="Add a relation between two memory entries")
+async def add_memory_relation(source_memory_entry_id: int, target_memory_entry_id: int, relation_type: Optional[str] = None):
+    logger.info("MCP Tool 'add_memory_relation' called for source_memory_entry_id: %d, target_memory_entry_id: %d, relation_type: %s", source_memory_entry_id, target_memory_entry_id, relation_type)
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_relations import link_memory_entries_db
+        relation = await link_memory_entries_db(session, source_memory_entry_id, target_memory_entry_id, relation_type)
+        if relation:
+            return {"status": "success", "message": f"Relation added between memory entries {source_memory_entry_id} and {target_memory_entry_id} with id {relation.id}"}
+        else:
+            return {"status": "error", "message": f"Failed to add relation between memory entries {source_memory_entry_id} and {target_memory_entry_id}"}
+
+@mcp_instance.tool(name="remove_memory_relation", description="Remove a relation between two memory entries")
+async def remove_memory_relation(relation_id: int):
+    logger.info("MCP Tool 'remove_memory_relation' called for relation_id: %d", relation_id)
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_relations import unlink_memory_entry_relation_db
+        success = await unlink_memory_entry_relation_db(session, relation_id)
+        if success:
+            return {"status": "success", "message": f"Relation with id {relation_id} removed"}
+        else:
+            return {"status": "error", "message": f"Failed to remove relation with id {relation_id}"}
 
 # Additional tools for managing memory tags and relations can be implemented here.

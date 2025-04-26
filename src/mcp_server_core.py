@@ -53,30 +53,37 @@ if hasattr(mcp_instance, "_tool_manager"):
 else:
     logger.warning("FastMCP instance does not have a '_tool_manager' attribute immediately after creation.")
 
+logger.info("Finished importing MCP tool modules.")
+
+# Import memory and document tools to register them with the MCP instance
+import src.mcp_memory_tools
+import src.mcp_document_tools
+
 # --- Tool Registration Logging Patches ---
 # Patch FastMCP.add_tool for detailed logging
 original_add_tool = FastMCP.add_tool
-
-def logged_add_tool(self: Any, fn: Callable[..., Any], name: Optional[str] = None, description: Optional[str] = None) -> None:
-    """Logs tool registration attempts via FastMCP.add_tool."""
-    tool_name = name or getattr(fn, "__name__", "<unknown>")
-    logger.info(f"Attempting to register MCP tool via FastMCP.add_tool: '{tool_name}'")
-    logger.info(f"Using FastMCP instance at id {id(self)}")
-    if hasattr(self, "_tool_manager"):
-        logger.info(f"Targeting ToolManager instance at id {id(self._tool_manager)}")
-    else:
-        logger.warning("'_tool_manager' not found on FastMCP instance during add_tool call.")
-    if callable(original_add_tool):
+if original_add_tool is None:
+    logger.warning("FastMCP.add_tool is None, skipping patching.")
+    def logged_add_tool(self: Any, fn: Callable[..., Any], name: Optional[str] = None, description: Optional[str] = None) -> None:
+        """Dummy logged_add_tool when original is None."""
+        pass
+else:
+    def logged_add_tool(self: Any, fn: Callable[..., Any], name: Optional[str] = None, description: Optional[str] = None) -> None:
+        """Logs tool registration attempts via FastMCP.add_tool."""
+        tool_name = name or getattr(fn, "__name__", "<unknown>")
+        logger.info(f"Attempting to register MCP tool via FastMCP.add_tool: '{tool_name}'")
+        logger.info(f"Using FastMCP instance at id {id(self)}")
+        if hasattr(self, "_tool_manager"):
+            logger.info(f"Targeting ToolManager instance at id {id(self._tool_manager)}")
+        else:
+            logger.warning("'_tool_manager' not found on FastMCP instance during add_tool call.")
         original_add_tool(self, fn, name=name, description=description)
-    else:
-        logger.error("original_add_tool is not callable.")
-        return
-    logger.info(f"Completed call to original FastMCP.add_tool for '{tool_name}'")
-    if hasattr(self, "_tool_manager") and hasattr(self._tool_manager, "_tools"):
-        tools = getattr(self._tool_manager, "_tools", {})
-        logger.info(f"Current tools in ToolManager after adding '{tool_name}': {list(tools.keys())}")
-    else:
-        logger.warning("Could not verify tools in ToolManager after adding tool.")
+        logger.info(f"Completed call to original FastMCP.add_tool for '{tool_name}'")
+        if hasattr(self, "_tool_manager") and hasattr(self._tool_manager, "_tools"):
+            tools = getattr(self._tool_manager, "_tools", {})
+            logger.info(f"Current tools in ToolManager after adding '{tool_name}': {list(tools.keys())}")
+        else:
+            logger.warning("Could not verify tools in ToolManager after adding tool.")
 
 FastMCP.add_tool = logged_add_tool
 logger.info("Patched FastMCP.add_tool with logging.")
@@ -118,43 +125,25 @@ else:
 
 # Patch FastMCP.list_tools for logging (check if method exists)
 original_list_tools = getattr(FastMCP, "list_tools", None)
-if original_list_tools is not None and callable(original_list_tools):
-    async def logged_list_tools(self: FastMCP) -> Any:
-        """Logs listing of tools via FastMCP.list_tools."""
-        potential = await original_list_tools(self)
-        tools = potential if potential is not None else []
-        logger.info(f"Listing MCP tools: {[tool.name for tool in tools]}")
-        return tools
-
-    FastMCP.list_tools = logged_list_tools
-    logger.info("Patched FastMCP.list_tools with logging.")
-else:
-    async def dummy_list_tools(self: FastMCP) -> Any:
-        logger.info("FastMCP.list_tools method not found; returning empty list.")
+# Ensure original_list_tools is callable; if not, assign a fallback.
+if original_list_tools is None or not callable(original_list_tools):
+    async def fallback_list_tools(self: FastMCP) -> Any:
         return []
-    FastMCP.list_tools = dummy_list_tools
-    logger.info("Assigned dummy FastMCP.list_tools with logging.")
+    original_list_tools = fallback_list_tools
 
-# --- Import Tool Modules ---
-# Import tool modules AFTER mcp_instance is created and patches are applied.
-logger.info("Importing MCP tool modules to trigger registration...")
-try:
-    import src.mcp_project_tools  # noqa: F401 - Import executes the module code
-    logger.info("Successfully imported src.mcp_project_tools")
-except ImportError as e:
-    logger.error(f"Failed to import src.mcp_project_tools: {e}", exc_info=True)
-except Exception as e:
-    logger.error(f"An unexpected error occurred during import of src.mcp_project_tools: {e}", exc_info=True)
+async def logged_list_tools(self: FastMCP) -> Any:
+    """Logs listing of tools via FastMCP.list_tools with error handling."""
+    try:
+        potential = await original_list_tools(self)
+    except Exception as e:
+        logger.error(f"Error calling original_list_tools: {e}")
+        potential = None
+    tools = potential if potential is not None else []
+    logger.info(f"Listing MCP tools: {[tool.name for tool in tools]}")
+    return tools
 
-try:
-    import src.mcp_server  # noqa: F401 - Assuming this also contains tools
-    logger.info("Successfully imported src.mcp_server")
-except ImportError as e:
-    logger.error(f"Failed to import src.mcp_server: {e}", exc_info=True)
-except Exception as e:
-    logger.error(f"An unexpected error occurred during import of src.mcp_server: {e}", exc_info=True)
-
-logger.info("Finished importing MCP tool modules.")
+FastMCP.list_tools = logged_list_tools
+logger.info("Patched FastMCP.list_tools with logging.")
 
 # Remove get_session from mcp_server_core to break circular import
 # Instead, move get_session to a new module (e.g., src/mcp_db_helpers.py)

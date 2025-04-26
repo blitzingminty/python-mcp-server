@@ -131,18 +131,20 @@ REMEMBER: After every memory reset, I begin completely fresh. The Memory Bank is
 
 ### Requesting Assistance From Another AI Model
 
-If the current task is outside of your capabilities or requires specialized knowledge you do not possess, follow these steps to request assistance from another AI model:
+If the current task is outside of your capabilities or requires specialized knowledge you do not possess, follow these steps to request assistance from another AI model (like Gemini, via manual copy-paste):
 
 1.  **Create a new prompt file:** Save the following prompt content (adjusting the specific details as needed) to a new unique file named `{issue_description}_prompt.md` in the `.memory-bank/.ai` folder (create it if it doesn't exist). This file will contain all necessary information for the assisting AI.
-2.  **Prepare a blank response file:** Create an empty markdown file named `{issue_description}_response.md` in the same `.ai` folder. The user will write the assisting AI's response to this file.
+2.  **Prepare a blank response file:** Create an empty markdown file named `{issue_description}_response.md` in the same `.ai` folder. The user will manually copy the assisting AI's response into this file.
 3.  **New Prompt File Content:** The `{issue_description}_prompt.md` should include the following sections:
     * **Task Description:** A clear and concise description of the task you need help with. Include any relevant context from the Memory Bank.
     * **Relevant Memory Bank Content:** Include *relevant* snippets or references from the Memory Bank files (e.g., `projectbrief.md`, `activeContext.md`, `techContext.md`) that may be helpful. Be selective and only include the most important information to avoid overwhelming the assisting AI.
     * **Specific Instructions:** Provide detailed instructions on what you need the assisting AI to do. Be specific about the expected output format and any constraints.
+    * **Mandatory Requirements for Gemini:** (Use this section when requesting assistance from Gemini) Clearly list non-negotiable requirements for the response.
     * **Example (If Applicable):** If possible, include a concise example of the desired output.
-    * **Request Assistance:** Explicitly state that you are requesting assistance.
+    * **Request Assistance:** Explicitly state that you are requesting assistance and specify where the response should be placed.
+4.  **Wait for response:** The user will manually ask another AI Model (like Gemini) for assistance using the content of your prompt file, save the response to `{issue_description}_response.md`, and let you know when to proceed.
 
-**Example `ai_assistance_prompt.md` Content Structure:**
+**Example `{issue_description}_prompt.md` Content Structure:**
 
 ```markdown
 # AI Assistance Request
@@ -158,6 +160,9 @@ If the current task is outside of your capabilities or requires specialized know
 **From `activeContext.md`:**
 - Current Focus: Optimizing algorithm performance.
 
+**From source code:**
+- Provide as much relevant code as needed. The AI assisting won't have any knowledge of the code!
+
 ## Specific Instructions
 - Write a Python function named `calculate_fibonacci`.
 - The function should take an integer `n` as input.
@@ -166,10 +171,13 @@ If the current task is outside of your capabilities or requires specialized know
 - Add a docstring explaining the function's purpose, parameters, and return value.
 - Ensure the code adheres to PEP 8 style guidelines.
 
-## Expected Output 
+## Mandatory Requirements for Gemini
+- **Output Format:** The *entire* response MUST be a single raw markdown code block containing introductory phrases, explanations, and concluding remarks along with the requested Python code.
+
+## Example Expected Output
 \`\`\`python
-# Code should be placed here
+# Complete response code goes here
 \`\`\`
 
 ## Request
-Please assist with the task described above. Write your response, containing *only* the requested Python code block, directly into the `ai_assistance_response.md` file. Do not add any conversational text before or after the code block in the response file.
+Gemini, please assist with the task described above. Write your response, adhering strictly to the mandatory requirements, directly into the `{issue_description}_response.md` file (which the user will then provide).

@@ -1,22 +1,26 @@
 # Active Context
 
-**Date:** 2025-04-25
+## Current Work Focus
+- Fixed async generator usage in MCP memory and document tools by removing the `ctx` parameter and replacing session management with the async context manager `get_session_from_factory`.
+- Ensured consistent async session handling across all MCP tools.
+- Added Pylance suppression comments to reduce false positives related to async context manager typing.
 
-## Current Work & Recent Changes
-- Resolved the MCP tool registration issue in `src/mcp_server_core.py`.
-- Fixed a problem where duplicate or unsafe calls to the original add_tool function were causing tool registration errors.
-- Applied logging patches to FastMCP.add_tool, ToolManager.add_tool, and FastMCP.list_tools to ensure that tool registrations are properly tracked.
+## Recent Changes
+- Updated `src/mcp_memory_tools.py` to replace all `async with get_db_session()` usage with `async with get_session_from_factory()`.
+- Updated `src/mcp_document_tools.py` to remove `ctx` parameters and replace session acquisition with `async with get_session_from_factory()`.
+- Verified manual testing indicates all async generator usage errors are resolved.
 
-## Findings & Resolution
-- The root cause was identified as an inconsistency in how the FastMCP instance was retrieving and calling its original add_tool function. In some cases, it was `None` or not callable.
-- A safe retrieval mechanism (using a fallback lambda) was implemented to ensure that if the original add_tool is missing, a harmless no-op is used instead.
-- Comprehensive logging was added to diagnose the tool registration process and confirm that all expected MCP tools – list_projects, create_project, get_project, update_project, delete_project, set_active_project, and handle_message – are registered correctly.
-- Debug output from running the debug listing script confirmed that the tools are now properly registered and that the logging patches are functioning as intended.
+## Active Decisions and Considerations
+- `get_session_from_factory` is the standard async context manager for acquiring database sessions in MCP tools.
+- MCP tools no longer accept the `ctx` parameter for session management.
+- Pylance false positives on async context manager typing are suppressed with comments.
 
-## Learnings
-- It's critical to establish a reliable MCP instance creation flow that occurs before any tool modules are imported.
-- Careful management of function references (like original_add_tool) is necessary to prevent runtime errors such as "object of type None cannot be called."
-- Implementing fallback mechanisms (e.g., checking with callable()) and extensive logging helps in diagnosing and resolving issues in complex initialization flows.
-- Testing using a dedicated debug tool (e.g., `src/debug_list_tools.py`) is invaluable for verifying the correctness of tool registration. 
+## Learnings and Insights
+- Proper async generator consumption is critical for stable async session management with SQLAlchemy.
+- Consistent patterns across MCP tools improve maintainability and reduce runtime errors.
+- Static type checkers may require suppression comments due to complex async typing in SQLAlchemy.
 
-*Memory bank updated to reflect the changes and learnings regarding the MCP tool registration resolution.*
+## Next Steps
+- Continue monitoring MCP tools for any runtime issues.
+- Update Memory Bank documentation as needed for future reference.
+- Proceed with further MCP tool enhancements or bug fixes as requested.

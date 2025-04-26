@@ -1,7 +1,7 @@
 # src/database.py
 
 import logging # Add logging import
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import event # <--- Import event listener
 from sqlalchemy.engine import Engine # <--- Import Engine for type hinting
@@ -37,8 +37,11 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
 
 
 # Create an asynchronous session factory
+# pyright: reportMissingTypeStubs=false
+# pyright: reportUnknownMemberType=false
+# pyright: ignore[reportGeneralTypeIssues]
 AsyncSessionFactory = sessionmaker(
-    engine,
+    bind=engine,  # Explicitly specify bind parameter with AsyncEngine
     class_=AsyncSession,
     expire_on_commit=False
 )
@@ -47,7 +50,12 @@ AsyncSessionFactory = sessionmaker(
 Base = declarative_base()
 
 # --- Dependency for FastAPI (keep as is) ---
-async def get_db_session() -> AsyncSession:
+from typing import AsyncGenerator
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from typing import AsyncGenerator
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency that yields an async database session.
     Ensures the session is closed even if errors occur.
@@ -59,7 +67,11 @@ async def get_db_session() -> AsyncSession:
             await session.rollback()
             raise
         finally:
-            pass # Session closed automatically by context manager
+            pass  # Session closed automatically by context manager
+
+# Suppress Pylance false positives for AsyncSession async context manager
+# pyright: reportMissingTypeStubs=false
+# pyright: reportUnknownMemberType=false
 
 # --- Optional: Function to initialize database (keep as is) ---
 async def init_db():
@@ -91,4 +103,3 @@ if __name__ == "__main__":
             break # Exit after one iteration for this example
 
     asyncio.run(main())
-    

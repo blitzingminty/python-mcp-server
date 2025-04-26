@@ -19,18 +19,19 @@ from pathlib import Path
 
 # --- Project Imports ---
 from .config import settings
-from .mcp_server_lifespan import mcp_instance, fastapi_lifespan as app_lifespan
+from .mcp_server_lifespan import fastapi_lifespan as app_lifespan
 from .web_routes import router as web_ui_router
+from .mcp_server_core import mcp_instance
 
 # --- Logging Setup ---
 # Keep your existing logging setup
 logger = logging.getLogger()
 logger.setLevel(settings.LOG_LEVEL)
 if not logger.hasHandlers():
-     handler = logging.StreamHandler(sys.stdout)
-     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-     handler.setFormatter(formatter)
-     logger.addHandler(handler)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 # --- Base Directory ---
@@ -102,17 +103,17 @@ def run_http_mode():
             from starlette.types import ASGIApp, Receive, Scope, Message
 
             class MCPMessageForwarder(BaseHTTPMiddleware):
-                def __init__(self, app: ASGIApp, mcp_app: ASGIApp) -> None:
+                def __init__(self, app: ASGIApp) -> None:
                     super().__init__(app)
-                    self.mcp_app = mcp_app
 
                 async def dispatch(self, request: StarletteRequest, call_next: Callable[[StarletteRequest], Awaitable[Response]]) -> Response:
                     if request.url.path.startswith("/messages/") and request.method == "POST":
                         scope: Scope = dict(request.scope)
                         scope["path"] = request.url.path
+                        scope["query_string"] = request.url.query.encode("utf-8")
                         receive: Receive = request.receive
 
-                        # Collect response messages from mcp_app
+                        # Collect response messages from mcp_instance.sse_app()
                         response_messages: List[Message] = []
 
                         async def send(message: Message) -> None:
@@ -121,7 +122,7 @@ def run_http_mode():
                             logger.debug(f"MCP SSE message sent: {message}")
 
                         logger.info(f"Forwarding POST request to MCP app: path={scope['path']}")
-                        await self.mcp_app(scope, receive, send)
+                        await sse_asgi_app(scope, receive, send)
                         logger.info(f"Completed forwarding POST request to MCP app, collected {len(response_messages)} messages")
 
                         # Add logging to inspect tools list response
@@ -162,7 +163,7 @@ def run_http_mode():
                         response = await call_next(request)
                         return response
 
-            app.add_middleware(MCPMessageForwarder, mcp_app=sse_asgi_app)
+            app.add_middleware(MCPMessageForwarder)
 
         if not sse_asgi_app:
              raise RuntimeError("mcp_instance.sse_app() did not return a valid application to mount.")
