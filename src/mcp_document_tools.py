@@ -52,6 +52,7 @@ async def create_document(project_id: int, name: str, path: str, content: str, t
     async with get_session_from_factory() as session:
         document = await add_document_in_db(session, project_id=project_id, name=name, path=path, content=content, type=type, version=version)
         if document:
+            await session.commit()
             logger.info(f"MCP Tool 'create_document' successfully created document ID: {document.id}.")
             return {
                 "status": "created",
@@ -114,6 +115,7 @@ async def update_document(document_id: int, name: str | None = None, path: str |
     async with get_session_from_factory() as session:
         document = await update_document_in_db(session, document_id=document_id, name=name, path=path, type=type)
         if document:
+            await session.commit()
             logger.info(f"MCP Tool 'update_document' successfully updated document ID: {document_id}.")
             return {
                 "status": "updated",
