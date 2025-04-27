@@ -13,6 +13,10 @@ This document outlines a comprehensive testing plan for all tools available in t
   - List memory entries for a valid project with no entries (expect empty list).
   - List memory entries for an invalid/non-existent project (expect error or empty list).
   - List memory entries with missing project_id parameter (expect error).
+- **Testing Instructions:**
+  - Use `use_mcp_tool` with `tool_name` set to `"list_memory"` and provide `project_id` as argument.
+  - Verify the returned list matches expected entries or is empty as appropriate.
+  - Test with invalid or missing `project_id` to confirm error handling.
 
 ### 1.2 create_memory
 - **Purpose:** Create a new memory entry.
@@ -21,6 +25,10 @@ This document outlines a comprehensive testing plan for all tools available in t
   - Create memory entry with missing required fields (expect error).
   - Create memory entry with very large content.
   - Create memory entry with special characters in title and content.
+- **Testing Instructions:**
+  - Use `use_mcp_tool` with `tool_name` set to `"create_memory"` and provide required arguments.
+  - Verify the response contains the created memory entry with correct fields.
+  - Test with missing or invalid fields to confirm error handling.
 
 ### 1.3 get_memory
 - **Purpose:** Retrieve details of a specific memory entry by ID.
@@ -225,22 +233,23 @@ This testing plan should be reviewed and then implemented as automated tests or 
 - Indicates potential issues with memory entry persistence or retrieval.
 
 ### Document Tools
-- Document creation failed initially with a newly created project but succeeded with an existing project.
-- Document retrieval, update, tagging, version listing, and version retrieval all functioned correctly.
-- Document deletion also succeeded.
-- Overall, document tools are stable and functional.
+- Document creation succeeded with existing projects; initial failures with newly created projects.
+- Document retrieval, tagging, version listing, and deletion operations functioned correctly.
+- Document update tool triggered an async context error during testing.
+- Overall, document tools are mostly stable with minor issues.
 
 ### Project Tools
-- Project creation initially appeared successful but project details could not be retrieved.
-- Using existing projects for tests worked correctly.
-- Project update, set active, and deletion operations succeeded.
-- Project listing is consistent and reliable.
-- Project tools are generally functional with some issues on newly created projects.
+- Project creation succeeded but retrieval of newly created projects failed (returned null).
+- Project update and set active operations returned null or unexpected results for new projects.
+- Project deletion and listing operations worked as expected.
+- Existing projects behaved correctly during tests.
+- Indicates potential issues with project persistence or retrieval for new entries.
 
 ### General Observations
 - Some inconsistencies with newly created entities not being immediately accessible.
 - Existing entities behave as expected.
-- Further investigation recommended for creation and retrieval consistency.
+- Async context management errors observed in some update operations.
+- Further investigation recommended for creation, retrieval, and async handling issues.
 
 ---
 

@@ -29,3 +29,4 @@
 - Continue monitoring MCP tools for any runtime issues.
 - Update Memory Bank documentation as needed for future reference.
 - Proceed with further MCP tool enhancements or bug fixes as requested.
+- Investigation Plan: MCP Tool Issues

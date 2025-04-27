@@ -45,6 +45,7 @@ async def create_project(name: str, description: str, path: str, is_active: Any)
     is_active_bool = coerce_to_bool(is_active)
     async with get_session_from_factory() as session:
         project = await create_project_in_db(session=session, name=name, path=path, description=description, is_active=is_active_bool)
+        await session.commit()
     return {"project": project}
 
 @mcp_instance.tool()
