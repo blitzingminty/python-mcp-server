@@ -69,18 +69,7 @@ async def get_memory(memory_id: int):
         else:
             return {"status": "error", "message": f"Memory entry with id {memory_id} not found"}
 
-@mcp_instance.tool(name="add_tag_to_memory_entry", description="Add a tag to a memory entry")
-async def add_tag_to_memory_entry(memory_id: int, tag_name: str):
-    logger.info("MCP Tool 'add_tag_to_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
-
-    async with get_session_from_factory() as session:
-        from .mcp_db_helpers_memory import add_tag_to_memory_entry_db
-        success = await add_tag_to_memory_entry_db(session, memory_id, tag_name)
-        if success:
-            await session.commit()
-            return {"status": "success", "message": f"Tag '{tag_name}' added to memory entry with id {memory_id}"}
-        else:
-            return {"status": "error", "message": f"Failed to add tag '{tag_name}' to memory entry with id {memory_id}"}
+# Removed duplicate add_tag_to_memory_entry function to resolve Pylance error
 
 @mcp_instance.tool(name="delete_memory", description="Delete a memory entry")
 async def delete_memory(memory_id: int):
@@ -96,7 +85,7 @@ async def delete_memory(memory_id: int):
             return {"status": "error", "message": f"Failed to delete memory entry with id {memory_id}"}
 
 @mcp_instance.tool(name="add_tag_to_memory_entry", description="Add a tag to a memory entry")
-async def add_tag_to_memory_entry_1(memory_id: int, tag_name: str):
+async def add_tag_to_memory_entry(memory_id: int, tag_name: str):
     logger.info("MCP Tool 'add_tag_to_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
 
     async with get_session_from_factory() as session:
@@ -129,8 +118,20 @@ async def remove_memory_relation(relation_id: int):
         from .mcp_db_helpers_relations import unlink_memory_entry_relation_db
         success = await unlink_memory_entry_relation_db(session, relation_id)
         if success:
+            await session.commit()
             return {"status": "success", "message": f"Relation with id {relation_id} removed"}
         else:
             return {"status": "error", "message": f"Failed to remove relation with id {relation_id}"}
 
-# Additional tools for managing memory tags and relations can be implemented here.
+@mcp_instance.tool(name="remove_tag_from_memory_entry", description="Remove a tag from a memory entry")
+async def remove_tag_from_memory_entry(memory_id: int, tag_name: str):
+    logger.info("MCP Tool 'remove_tag_from_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
+
+    async with get_session_from_factory() as session:
+        from .mcp_db_helpers_memory import remove_tag_from_memory_entry_db
+        success = await remove_tag_from_memory_entry_db(session, memory_id, tag_name)
+        if success:
+            await session.commit()
+            return {"status": "success", "message": f"Tag '{tag_name}' removed from memory entry with id {memory_id}"}
+        else:
+            return {"status": "error", "message": f"Failed to remove tag '{tag_name}' from memory entry with id {memory_id}"}
