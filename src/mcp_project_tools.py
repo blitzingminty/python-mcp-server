@@ -58,6 +58,7 @@ async def get_project(project_id: int) -> Dict[str, Any]:
 async def update_project(project_id: int, name: str, description: str) -> Dict[str, Any]:
     async with get_session_from_factory() as session:
         project = await update_project_in_db(session=session, project_id=project_id, name=name, description=description)
+        await session.commit()
     return {"project": project}
 
 @mcp_instance.tool()
