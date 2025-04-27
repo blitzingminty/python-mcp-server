@@ -16,6 +16,25 @@ async def get_session_from_factory():
     async for session in get_db_session():
         yield session
 
+# Added detailed logging for session acquisition and release in document tools
+import contextvars
+import asyncio
+
+session_context_var = contextvars.ContextVar("session_context_var")
+
+@asynccontextmanager
+async def get_logged_session_from_factory():
+    logger.info("Acquiring DB session in document tool...")
+    async for session in get_db_session():
+        token = session_context_var.set(session)
+        try:
+            yield session
+        finally:
+            session_context_var.reset(token)
+            logger.info("Released DB session in document tool.")
+
+# Replace usage of get_session_from_factory with get_logged_session_from_factory in all MCP tools below
+
 @mcp_instance.tool(name="list_documents", description="List all documents")
 async def list_documents(project_id: int | None = None):
     """

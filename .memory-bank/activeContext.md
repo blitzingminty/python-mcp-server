@@ -1,35 +1,33 @@
-# Active Context
+# activeContext.md
 
 ## Current Work Focus
-- Fixed persistence issue in MCP `create_project` tool by adding explicit `await session.commit()` after project creation.
-- Confirmed that projects created via MCP tools are now properly persisted and retrievable.
-- Verified consistency between MCP tools and Web UI for project creation and retrieval.
-- Continued investigation plan for MCP tool issues, focusing on session and transaction management.
-- Maintained async session management patterns using `get_session_from_factory` context manager.
-- Addressed boolean parameter input coercion in MCP tool handlers to prevent validation errors.
-- Updated all project-related MCP tools (`create_project`, `update_project`, `delete_project`, `set_active_project`) to include explicit commit calls.
-- Tested updated project MCP tools to confirm transaction commit fixes.
-- Confirmed project deletion and active project setting persist correctly.
+- Testing and ensuring persistence and retrieval functionality of memory-related MCP tools.
+- Added explicit commit calls to all modifying memory tools for consistent transaction management.
+- Verified create_memory, get_memory, update_memory, and add_tag_to_memory_entry tools.
+- Implemented missing remove_tag_from_memory_entry MCP tool.
+- Resolved duplicate function declarations in mcp_memory_tools.py.
+- Tested remove_tag_from_memory_entry, add_memory_relation, and remove_memory_relation tools successfully.
 
 ## Recent Changes
-- Updated `src/mcp_project_tools.py` MCP tool handlers to include explicit commit calls.
-- Tested project-related MCP tools for persistence and retrieval correctness.
-- Documented findings and updated Memory Bank accordingly.
-
-## Active Decisions and Considerations
-- Explicit commit calls are necessary in MCP tool handlers to ensure data persistence.
-- MCP tools and Web UI routes differ in transaction commit handling; MCP tools require explicit commits.
-- Continue reviewing other MCP tools for similar commit handling improvements.
-- Maintain consistent async session management patterns across MCP tools.
-
-## Learnings and Insights
-- Async session context managers do not auto-commit transactions; explicit commit is required.
-- Proper transaction management is critical for data consistency and visibility.
-- Input coercion for boolean parameters improves robustness of MCP tool handlers.
-- Comprehensive testing and comparison with Web UI implementations help identify discrepancies.
+- Added explicit `await session.commit()` calls in all MCP tools that modify the database.
+- Implemented `remove_tag_from_memory_entry` MCP tool in `src/mcp_memory_tools.py`.
+- Removed duplicate `add_tag_to_memory_entry` function to resolve static analysis warnings.
+- Added commit call in `remove_memory_relation` MCP tool.
+- Verified and tested all memory-related MCP tools for correct operation.
 
 ## Next Steps
-- Review and update MCP tools related to documents and memory entries to include explicit commit calls where needed.
-- Expand automated tests to cover transaction management scenarios.
+- Continue testing and debugging document-related MCP tools, focusing on async context errors.
+- Review and update document MCP tools to include explicit commit calls where necessary.
 - Monitor MCP tool runtime behavior for any further persistence or retrieval issues.
-- Update Memory Bank documentation to reflect transaction management best practices.
+- Address any additional static analysis warnings as they arise.
+- Prepare for a comprehensive test run after all MCP tools have been updated and verified.
+
+## Active Decisions and Considerations
+- Consistent transaction management is critical for MCP tool reliability.
+- MCP tools should always commit after modifying database state.
+- Avoid duplicate function declarations to prevent static analysis warnings and runtime issues.
+
+## Learnings and Insights
+- Explicit commit calls resolved many persistence issues.
+- Async context management patterns must be consistent across all MCP tools.
+- Helper functions encapsulate database logic effectively, promoting reuse and clarity.
