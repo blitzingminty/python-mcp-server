@@ -65,12 +65,14 @@ async def update_project(project_id: int, name: str, description: str) -> Dict[s
 async def delete_project(project_id: int) -> Dict[str, Any]:
     async with get_session_from_factory() as session:
         success = await delete_project_in_db(session=session, project_id=project_id)
+        await session.commit()
     return {"success": success}
 
 @mcp_instance.tool()
 async def set_active_project(project_id: int) -> Dict[str, Any]:
     async with get_session_from_factory() as session:
         success = await set_active_project_in_db(session=session, project_id=project_id)
+        await session.commit()
     return {"success": success}
 
 # Removed duplicate set_active_project definition to fix function declaration obscured error
