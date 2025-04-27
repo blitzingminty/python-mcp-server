@@ -108,30 +108,18 @@ async def add_tag_to_memory_entry_1(memory_id: int, tag_name: str):
         else:
             return {"status": "error", "message": f"Failed to add tag '{tag_name}' to memory entry with id {memory_id}"}
 
-@mcp_instance.tool(name="remove_tag_from_memory_entry", description="Remove a tag from a memory entry")
-async def remove_tag_from_memory_entry_1(memory_id: int, tag_name: str):
-    logger.info("MCP Tool 'remove_tag_from_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
-
-    async with get_session_from_factory() as session:
-        from .mcp_db_helpers_memory import remove_tag_from_memory_entry_db
-        success = await remove_tag_from_memory_entry_db(session, memory_id, tag_name)
-        if success:
-            await session.commit()
-            return {"status": "success", "message": f"Tag '{tag_name}' removed from memory entry with id {memory_id}"}
-        else:
-            return {"status": "error", "message": f"Failed to remove tag '{tag_name}' from memory entry with id {memory_id}"}
-
 @mcp_instance.tool(name="add_memory_relation", description="Add a relation between two memory entries")
-async def add_memory_relation(source_memory_entry_id: int, target_memory_entry_id: int, relation_type: Optional[str] = None):
-    logger.info("MCP Tool 'add_memory_relation' called for source_memory_entry_id: %d, target_memory_entry_id: %d, relation_type: %s", source_memory_entry_id, target_memory_entry_id, relation_type)
+async def add_memory_relation(memory_id_source: int, memory_id_target: int, relation_type: Optional[str] = None):
+    logger.info("MCP Tool 'add_memory_relation' called for memory_id_source: %d, memory_id_target: %d, relation_type: %s", memory_id_source, memory_id_target, relation_type)
 
     async with get_session_from_factory() as session:
         from .mcp_db_helpers_relations import link_memory_entries_db
-        relation = await link_memory_entries_db(session, source_memory_entry_id, target_memory_entry_id, relation_type)
+        relation = await link_memory_entries_db(session, memory_id_source, memory_id_target, relation_type)
         if relation:
-            return {"status": "success", "message": f"Relation added between memory entries {source_memory_entry_id} and {target_memory_entry_id} with id {relation.id}"}
+            await session.commit()
+            return {"status": "success", "message": f"Relation added between memory entries {memory_id_source} and {memory_id_target} with id {relation.id}"}
         else:
-            return {"status": "error", "message": f"Failed to add relation between memory entries {source_memory_entry_id} and {target_memory_entry_id}"}
+            return {"status": "error", "message": f"Failed to add relation between memory entries {memory_id_source} and {memory_id_target}"}
 
 @mcp_instance.tool(name="remove_memory_relation", description="Remove a relation between two memory entries")
 async def remove_memory_relation(relation_id: int):
