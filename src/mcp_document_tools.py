@@ -41,6 +41,7 @@ async def create_document(ctx: Context, project_id: int, name: str, path: str, c
     async with managed_mcp_session(ctx) as session:
         document = await add_document_in_db(session, project_id=project_id, name=name, path=path, content=content, type=type, version=version)
         if document:
+            await session.commit()
             logger.info(f"MCP Tool 'create_document' successfully created document ID: {document.id}.")
             return {
                 "status": "created",
@@ -97,6 +98,7 @@ async def delete_document(ctx: Context, document_id: int):
     async with managed_mcp_session(ctx) as session:
         success = await delete_document_in_db(session, document_id=document_id)
         if success:
+            await session.commit()
             logger.info(f"MCP Tool 'delete_document' successfully deleted document ID: {document_id}.")
             return {"status": "deleted", "document_id": document_id}
         else:
@@ -111,6 +113,7 @@ async def add_document_tag(ctx: Context, document_id: int, tag_name: str):
     async with managed_mcp_session(ctx) as session:
         success = await add_tag_to_document_db(session, document_id=document_id, tag_name=tag_name)
         if success:
+            await session.commit()
             logger.info(f"MCP Tool 'add_document_tag' successfully added tag '{tag_name}' to document ID: {document_id}.")
             return {"status": "tag added", "document_id": document_id, "tag_name": tag_name}
         else:
@@ -125,6 +128,7 @@ async def remove_document_tag(ctx: Context, document_id: int, tag_name: str):
     async with managed_mcp_session(ctx) as session:
         success = await remove_tag_from_document_db(session, document_id=document_id, tag_name=tag_name)
         if success:
+            await session.commit()
             logger.info(f"MCP Tool 'remove_document_tag' successfully removed tag '{tag_name}' from document ID: {document_id}.")
             return {"status": "tag removed", "document_id": document_id, "tag_name": tag_name}
         else:
@@ -170,6 +174,7 @@ async def create_document_version(ctx: Context, document_id: int, content: str, 
     async with managed_mcp_session(ctx) as session:
         document, version = await add_document_version_db(session, document_id=document_id, content=content, version_string=version_string)
         if document and version:
+            await session.commit()
             logger.info(f"MCP Tool 'create_document_version' successfully created version '{version_string}' (ID: {version.id}) for document ID: {document_id}.")
             return {
                 "status": "created",
@@ -192,6 +197,7 @@ async def delete_document_version(ctx: Context, version_id: int):
     async with managed_mcp_session(ctx) as session:
         success = await delete_document_version_db(session, version_id=version_id)
         if success:
+            await session.commit()
             logger.info(f"MCP Tool 'delete_document_version' successfully deleted version ID: {version_id}.")
             return {"status": "deleted", "version_id": version_id}
         else:
