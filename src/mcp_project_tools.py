@@ -27,10 +27,24 @@ async def list_projects() -> Dict[str, Any]:
         projects = await list_projects_in_db(session)
     return {"projects": projects}
 
+def coerce_to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        elif lowered in ("false", "0", "no", "off"):
+            return False
+    if value is None:
+        return False
+    raise ValueError(f"Cannot coerce value {value!r} to bool")
+
 @mcp_instance.tool()
-async def create_project(name: str, description: str, path: str, is_active: bool) -> Dict[str, Project]:
+async def create_project(name: str, description: str, path: str, is_active: Any) -> Dict[str, Project]:
+    is_active_bool = coerce_to_bool(is_active)
     async with get_session_from_factory() as session:
-        project = await create_project_in_db(session=session, name=name, path=path, description=description, is_active=is_active)
+        project = await create_project_in_db(session=session, name=name, path=path, description=description, is_active=is_active_bool)
     return {"project": project}
 
 @mcp_instance.tool()

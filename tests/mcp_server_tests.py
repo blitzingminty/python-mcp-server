@@ -1,119 +1,253 @@
-import requests
-import json
-import subprocess
-import signal
-import os
-import time
-import sseclient
-import httpx
-from httpx_sse import aconnect_sse
-from anyio import create_memory_object_stream, create_task_group
+import asyncio
+import pytest
 
-# --- Configuration ---
-# Adjust these URLs to match YOUR MCP server configuration
-MCP_SERVER_ENDPOINT = "http://localhost:8000/mcp/sse"
+from mcp_session_context_remote import use_mcp_tool
 
-# Add any necessary headers (e.g., Authorization if your server requires it)
-REQUEST_HEADERS = {
-    "Content-Type": "application/json",
-    # "Authorization": "Bearer YOUR_API_KEY_IF_NEEDED"
-}
-
-# --- End Configuration ---
-
-def launch_server():
-    """Launches the MCP server in a separate process."""
-    print("[TEST] Launching MCP server...")
-    command = "python -m src.main"
-    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print(f"[TEST] MCP server process started with PID: {process.pid}")
-    time.sleep(5)  # Add a 5-second delay to allow the server to start
-    return process
-
-
-def stop_server(process):
-    """Stops the MCP server process."""
-    print("[TEST] Stopping MCP server...")
-    if process and process.poll() is None:
-        # process.terminate()  # Try a graceful shutdown first
-        os.kill(process.pid, signal.SIGTERM) # Use SIGTERM for graceful shutdown
-        process.wait(timeout=10)  # Give it some time to shut down
-
-        if process.poll() is None:
-            try:
-                print("[TEST] MCP server did not terminate gracefully, killing it...")
-                process.kill() # If it's still running, force kill
-            except Exception as e:
-                print(f"Error killing process: {e}")
-            finally:
-                pass
-        print("[TEST] MCP server stopped.")
+@pytest.mark.asyncio
+async def test_memory_tools():
+    # Create a project to associate memory entries with
+    projects_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="list_projects",
+        arguments={}
+    )
+    projects = projects_response.get("result", [])
+    if not projects:
+        project_response = await use_mcp_tool(
+            server_name="mcp-session-context-remote",
+            tool_name="create_project",
+            arguments={
+                "name": "Test Project",
+                "description": "Test Desc",
+                "path": "/tmp",
+                "is_active": True
+            }
+        )
+        project = project_response.get("result")
+        project_id = project["id"]
     else:
-        print("[TEST] MCP server process not found or already stopped.")
+        project_id = projects[0]["id"]
 
+    # Test create_memory
+    mem_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="create_memory",
+        arguments={
+            "project_id": project_id,
+            "title": "Test Memory",
+            "type": "test",
+            "content": "Test content"
+        }
+    )
+    mem = mem_response.get("result")
+    mem_id = mem["id"]
 
-async def list_tools_test():
-    """
-    Launches the MCP server, establishes an SSE connection,
-    sends a list_tools request as an SSE event, and prints the results.
-    """
-    server_process = launch_server()
-    try:
-        print("[TEST] Establishing SSE connection...")
-        try:
-            async with httpx.AsyncClient(headers=REQUEST_HEADERS, timeout=30, follow_redirects=False) as client:
-                try:
-                    async with aconnect_sse(client, "GET", MCP_SERVER_ENDPOINT) as event_source:
-                        event_source.response.raise_for_status()
-                        print("[TEST] SSE connection established.")
+    # Test get_memory
+    mem_get_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_memory",
+        arguments={"memory_id": mem_id}
+    )
+    mem_get = mem_get_response.get("result")
+    assert mem_get["title"] == "Test Memory"
 
-                        print("[TEST] Sending list_tools request as SSE event...")
-                        # Craft a JSON-RPC request to call the list_tools tool
-                        tool_request = {
-                            "jsonrpc": "2.0",
-                            "method": "tools/list",
-                            "params": {},
-                            "id": 1
-                        }
-                        # Send the tool request as a data event
-                        event_data = json.dumps(tool_request)
-                        print(f"[TEST->SERVER] Sending: {event_data}")
-                        # await client.post(MCP_SERVER_ENDPOINT, json=tool_request) # This is wrong
-                        # await client.send(event_data)
+    # Test update_memory
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="update_memory",
+        arguments={"memory_id": mem_id, "title": "Updated Title", "type": None, "content": None}
+    )
+    mem_updated_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_memory",
+        arguments={"memory_id": mem_id}
+    )
+    mem_updated = mem_updated_response.get("result")
+    assert mem_updated["title"] == "Updated Title"
 
-                        try:
-                            async for sse in event_source.aiter_sse():
-                                print(f"[TEST<-SERVER] Received event: {sse.event}, data: {sse.data}")
-                                if sse.event == 'message':
-                                    try:
-                                        result = json.loads(sse.data)
-                                        print(f"[TEST<-SERVER] list_tools response: {result}")
-                                        # Add assertions here to validate the response
-                                        assert "result" in result, "Response should contain 'result'"
-                                        assert isinstance(result["result"], list), "Result should be a list"
-                                        print("[TEST] list_tools test passed.")
-                                        break  # Stop listening after receiving the response
-                                    except (json.JSONDecodeError, AssertionError) as e:
-                                        print(f"[ERROR] list_tools test failed: {e}")
-                                        break
-                        except httpx.RequestError as e:
-                            print(f"[ERROR] SSE connection or request failed: {e}")
-                        except Exception as e:
-                            print(f"[ERROR] An unexpected error occurred: {e}")
-                except Exception as inner_e:
-                    print(f"Error during SSE connection: {inner_e}")
+    # Test add_tag_to_memory_entry
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="add_tag_to_memory_entry",
+        arguments={"memory_id": mem_id, "tag_name": "tag1"}
+    )
+    # Test remove_tag_from_memory_entry
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="remove_tag_from_memory_entry",
+        arguments={"memory_id": mem_id, "tag_name": "tag1"}
+    )
 
-        except Exception as e:
-            print(f"Error during client setup: {e}")
+    # Test delete_memory
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="delete_memory",
+        arguments={"memory_id": mem_id}
+    )
 
-    finally:
-        try:
-            stop_server(server_process)
-        except Exception as e:
-            print(f"Error stopping server: {e}")
-        finally:
-            pass
+@pytest.mark.asyncio
+async def test_document_tools():
+    projects_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="list_projects",
+        arguments={}
+    )
+    projects = projects_response.get("result", [])
+    if not projects:
+        project_response = await use_mcp_tool(
+            server_name="mcp-session-context-remote",
+            tool_name="create_project",
+            arguments={
+                "name": "Doc Test Project",
+                "description": "Doc Test Desc",
+                "path": "/tmp",
+                "is_active": True
+            }
+        )
+        project = project_response.get("result")
+        project_id = project["id"]
+    else:
+        project_id = projects[0]["id"]
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(list_tools_test())
+    doc_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="create_document",
+        arguments={
+            "project_id": project_id,
+            "name": "Test Doc",
+            "path": "test/path",
+            "content": "Doc content",
+            "type": "text"
+        }
+    )
+    doc = doc_response.get("result")
+    doc_id = doc["id"]
+
+    doc_get_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_document",
+        arguments={"document_id": doc_id}
+    )
+    doc_get = doc_get_response.get("result")
+    assert doc_get["name"] == "Test Doc"
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="update_document",
+        arguments={"document_id": doc_id, "name": "Updated Doc", "path": None, "type": None}
+    )
+    doc_updated_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_document",
+        arguments={"document_id": doc_id}
+    )
+    doc_updated = doc_updated_response.get("result")
+    assert doc_updated["name"] == "Updated Doc"
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="add_document_tag",
+        arguments={"document_id": doc_id, "tag_name": "tag1"}
+    )
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="remove_document_tag",
+        arguments={"document_id": doc_id, "tag_name": "tag1"}
+    )
+
+    versions_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="list_document_versions",
+        arguments={"document_id": doc_id}
+    )
+    versions = versions_response.get("result", [])
+
+    version_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="create_document_version",
+        arguments={"document_id": doc_id, "content": "Version content", "version_string": "v1.0"}
+    )
+    version = version_response.get("result")
+    version_id = version["id"]
+
+    version_get_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_document_version",
+        arguments={"version_id": version_id}
+    )
+    version_get = version_get_response.get("result")
+    assert version_get["content"] == "Version content"
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="delete_document_version",
+        arguments={"version_id": version_id}
+    )
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="delete_document",
+        arguments={"document_id": doc_id}
+    )
+
+@pytest.mark.asyncio
+async def test_project_tools():
+    projects_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="list_projects",
+        arguments={}
+    )
+    projects = projects_response.get("result", [])
+    initial_count = len(projects)
+
+    project_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="create_project",
+        arguments={"name": "New Project", "description": "Desc", "path": "/tmp", "is_active": False}
+    )
+    project = project_response.get("result")
+    project_id = project["id"]
+
+    proj_get_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_project",
+        arguments={"project_id": project_id}
+    )
+    proj_get = proj_get_response.get("result")
+    assert proj_get["name"] == "New Project"
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="update_project",
+        arguments={"project_id": project_id, "name": "Updated Project", "description": "Updated Desc"}
+    )
+    proj_updated_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="get_project",
+        arguments={"project_id": project_id}
+    )
+    proj_updated = proj_updated_response.get("result")
+    assert proj_updated["name"] == "Updated Project"
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="set_active_project",
+        arguments={"project_id": project_id}
+    )
+    # Optionally verify active project status if API supports it
+
+    await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="delete_project",
+        arguments={"project_id": project_id}
+    )
+
+    projects_after_response = await use_mcp_tool(
+        server_name="mcp-session-context-remote",
+        tool_name="list_projects",
+        arguments={}
+    )
+    projects_after = projects_after_response.get("result", [])
+    assert len(projects_after) == initial_count
+
+# Note: This test file uses the use_mcp_tool function to call tools on the mcp-session-context-remote MCP server.
+# Adjust the test code as needed to match the actual MCP client API and response formats.
