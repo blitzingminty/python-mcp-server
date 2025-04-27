@@ -69,26 +69,18 @@ async def get_memory(memory_id: int):
         else:
             return {"status": "error", "message": f"Memory entry with id {memory_id} not found"}
 
-@mcp_instance.tool(name="update_memory", description="Update an existing memory entry")
-async def update_memory(memory_id: int, title: Optional[str] = None, type: Optional[str] = None, content: Optional[str] = None):
-    logger.info("MCP Tool 'update_memory' called for memory_id: %d with data: %s", memory_id, {"title": title, "type": type, "content": content})
+@mcp_instance.tool(name="add_tag_to_memory_entry", description="Add a tag to a memory entry")
+async def add_tag_to_memory_entry(memory_id: int, tag_name: str):
+    logger.info("MCP Tool 'add_tag_to_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
 
     async with get_session_from_factory() as session:
-        from .mcp_db_helpers_memory import update_memory_entry_db
-        memory_entry = await update_memory_entry_db(session, memory_id, title, type, content)
-        if memory_entry:
+        from .mcp_db_helpers_memory import add_tag_to_memory_entry_db
+        success = await add_tag_to_memory_entry_db(session, memory_id, tag_name)
+        if success:
             await session.commit()
-            return {
-                "status": "updated",
-                "memory_entry": {
-                    "id": memory_entry.id,
-                    "title": memory_entry.title,
-                    "type": memory_entry.type,
-                    "content": memory_entry.content
-                }
-            }
+            return {"status": "success", "message": f"Tag '{tag_name}' added to memory entry with id {memory_id}"}
         else:
-            return {"status": "error", "message": f"Memory entry with id {memory_id} not found"}
+            return {"status": "error", "message": f"Failed to add tag '{tag_name}' to memory entry with id {memory_id}"}
 
 @mcp_instance.tool(name="delete_memory", description="Delete a memory entry")
 async def delete_memory(memory_id: int):
@@ -98,30 +90,33 @@ async def delete_memory(memory_id: int):
         from .mcp_db_helpers_memory import delete_memory_entry_db
         success, project_id = await delete_memory_entry_db(session, memory_id)
         if success:
+            await session.commit()
             return {"status": "deleted", "memory_id": memory_id}
         else:
             return {"status": "error", "message": f"Failed to delete memory entry with id {memory_id}"}
 
 @mcp_instance.tool(name="add_tag_to_memory_entry", description="Add a tag to a memory entry")
-async def add_tag_to_memory_entry(memory_id: int, tag_name: str):
+async def add_tag_to_memory_entry_1(memory_id: int, tag_name: str):
     logger.info("MCP Tool 'add_tag_to_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
 
     async with get_session_from_factory() as session:
         from .mcp_db_helpers_memory import add_tag_to_memory_entry_db
         success = await add_tag_to_memory_entry_db(session, memory_id, tag_name)
         if success:
+            await session.commit()
             return {"status": "success", "message": f"Tag '{tag_name}' added to memory entry with id {memory_id}"}
         else:
             return {"status": "error", "message": f"Failed to add tag '{tag_name}' to memory entry with id {memory_id}"}
 
 @mcp_instance.tool(name="remove_tag_from_memory_entry", description="Remove a tag from a memory entry")
-async def remove_tag_from_memory_entry(memory_id: int, tag_name: str):
+async def remove_tag_from_memory_entry_1(memory_id: int, tag_name: str):
     logger.info("MCP Tool 'remove_tag_from_memory_entry' called for memory_id: %d, tag_name: %s", memory_id, tag_name)
 
     async with get_session_from_factory() as session:
         from .mcp_db_helpers_memory import remove_tag_from_memory_entry_db
         success = await remove_tag_from_memory_entry_db(session, memory_id, tag_name)
         if success:
+            await session.commit()
             return {"status": "success", "message": f"Tag '{tag_name}' removed from memory entry with id {memory_id}"}
         else:
             return {"status": "error", "message": f"Failed to remove tag '{tag_name}' from memory entry with id {memory_id}"}
