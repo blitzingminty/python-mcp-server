@@ -39,6 +39,7 @@ async def create_memory(project_id: int, title: str, type: str, content: str):
         from .mcp_db_helpers_memory import add_memory_entry_db
         memory_entry = await add_memory_entry_db(session, project_id, title, type, content)
         if memory_entry:
+            await session.commit()
             return {
                 "status": "created",
                 "memory_entry": {
