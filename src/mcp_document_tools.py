@@ -146,6 +146,7 @@ async def delete_document(document_id: int):
     async with get_session_from_factory() as session:
         success = await delete_document_in_db(session, document_id=document_id)
         if success:
+            await session.commit()
             logger.info(f"MCP Tool 'delete_document' successfully deleted document ID: {document_id}.")
             return {"status": "deleted", "document_id": document_id}
         else:
