@@ -77,6 +77,7 @@ async def update_memory(memory_id: int, title: Optional[str] = None, type: Optio
         from .mcp_db_helpers_memory import update_memory_entry_db
         memory_entry = await update_memory_entry_db(session, memory_id, title, type, content)
         if memory_entry:
+            await session.commit()
             return {
                 "status": "updated",
                 "memory_entry": {
